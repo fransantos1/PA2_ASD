@@ -1,26 +1,27 @@
 package protocols.statemachine;
 
-import org.apache.logging.log4j.core.config.Order;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import protocols.agreement.IncorrectAgreement;
+import protocols.agreement.notifications.DecidedNotification;
 import protocols.agreement.notifications.JoinedNotification;
+import protocols.agreement.requests.ProposeRequest;
+import protocols.statemachine.notifications.ChannelReadyNotification;
+import protocols.statemachine.notifications.ExecuteNotification;
+import protocols.statemachine.requests.OrderRequest;
 import pt.unl.fct.di.novasys.babel.core.GenericProtocol;
 import pt.unl.fct.di.novasys.babel.exceptions.HandlerRegistrationException;
 import pt.unl.fct.di.novasys.babel.generic.ProtoMessage;
 import pt.unl.fct.di.novasys.channel.tcp.TCPChannel;
 import pt.unl.fct.di.novasys.channel.tcp.events.*;
 import pt.unl.fct.di.novasys.network.data.Host;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import protocols.agreement.IncorrectAgreement;
-import protocols.statemachine.notifications.ChannelReadyNotification;
-import protocols.agreement.notifications.DecidedNotification;
-import protocols.agreement.requests.ProposeRequest;
-import protocols.statemachine.notifications.ExecuteNotification;
-import protocols.statemachine.requests.OrderRequest;
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.util.*;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Properties;
 
 /**
  * This is NOT fully functional StateMachine implementation.
@@ -33,14 +34,14 @@ import java.util.*;
  *
  * Do not assume that any logic implemented here is correct, think for yourself!
  */
-public class StateMachine extends GenericProtocol {
-    private static final Logger logger = LogManager.getLogger(StateMachine.class);
+public class ABD extends GenericProtocol {
+    private static final Logger logger = LogManager.getLogger(ABD.class);
 
     private enum State {JOINING, ACTIVE}
 
     //Protocol information, to register in babel
-    public static final String PROTOCOL_NAME = "StateMachine";
-    public static final short PROTOCOL_ID = 200;
+    public static final String PROTOCOL_NAME = "ABD";
+    public static final short PROTOCOL_ID = 201;
 
     private final Host self;     //My own address/port
     private final int channelId; //Id of the created channel
@@ -49,9 +50,7 @@ public class StateMachine extends GenericProtocol {
     private List<Host> membership;
     private int nextInstance;
 
-    private Dictionary<Short,OrderRequest> bufferedReq;
-
-    public StateMachine(Properties props) throws IOException, HandlerRegistrationException {
+    public ABD(Properties props) throws IOException, HandlerRegistrationException {
         super(PROTOCOL_NAME, PROTOCOL_ID);
         nextInstance = 0;
 
@@ -109,40 +108,20 @@ public class StateMachine extends GenericProtocol {
             membership = new LinkedList<>(initialMembership);
             membership.forEach(this::openConnection);
             triggerNotification(new JoinedNotification(membership, 0));
-            processBufferedRequests();
         } else {
             state = State.JOINING;
             logger.info("Starting in JOINING as I am not part of initial membership");
             //You have to do something to join the system and know which instance you joined
-            requestToJoin(initialMembership);
             // (and copy the state of that instance)
         }
 
-    }
-
-    private void requestToJoin(List<Host> initialMembership) {
-
-        for(Host host : initialMembership) {
-            if(!host.equals(self)) {
-                openConnection(host);
-                 //sendMessage(new JoinRequest(self), host);
-                break;
-            }
-        }
-
-    }
-
-    private void processBufferedRequests() {
-        logger.info("Processing buffered requests now that state is ACTIVE");
-        //for(Map.Entry<Short, OrderRequest> entry : bufferedReq.)
     }
 
     /*--------------------------------- Requests ---------------------------------------- */
     private void uponOrderRequest(OrderRequest request, short sourceProto) {
         logger.debug("Received request: " + request);
         if (state == State.JOINING) {
-            bufferedReq.put(request.getId(), request);
-
+            //Do something smart (like buffering the requests)
         } else if (state == State.ACTIVE) {
             //Also do something starter, we don't want an infinite number of instances active
         	//Maybe you should modify what is it that you are proposing so that you remember that this
@@ -159,14 +138,6 @@ public class StateMachine extends GenericProtocol {
         //You should be careful and check if this operation if an application operation (and send it up)
         //or if this is an operations that was executed by the state machine itself (in which case you should execute)
         triggerNotification(new ExecuteNotification(notification.getOpId(), notification.getOperation()));
-        if(state == State.JOINING) {
-            state = State.ACTIVE;
-            processBufferedRequests();
-        }
-    }
-
-    private void uponChannelReadyNotification(ChannelReadyNotification notification) {
-        logger.debug("Channel Ready: " + notification);
     }
 
     /*--------------------------------- Messages ---------------------------------------- */
