@@ -1,6 +1,5 @@
 package protocols.statemachine;
 
-import org.apache.logging.log4j.core.config.Order;
 import protocols.agreement.notifications.JoinedNotification;
 import pt.unl.fct.di.novasys.babel.core.GenericProtocol;
 import pt.unl.fct.di.novasys.babel.exceptions.HandlerRegistrationException;
@@ -20,7 +19,10 @@ import protocols.statemachine.requests.OrderRequest;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.util.*;
+import java.util.Dictionary;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Properties;
 
 /**
  * This is NOT fully functional StateMachine implementation.
