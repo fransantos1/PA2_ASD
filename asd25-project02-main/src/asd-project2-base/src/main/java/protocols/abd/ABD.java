@@ -2,10 +2,14 @@ package protocols.abd;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.message.Message;
+import protocols.abd.messages.ReadTagMsg;
+import protocols.abd.messages.ReadTagRepMsg;
 import protocols.agreement.IncorrectAgreement;
 import protocols.agreement.notifications.DecidedNotification;
 import protocols.agreement.notifications.JoinedNotification;
 import protocols.agreement.requests.ProposeRequest;
+import protocols.app.utils.Operation;
 import protocols.statemachine.notifications.ChannelReadyNotification;
 import protocols.statemachine.notifications.ExecuteNotification;
 import protocols.statemachine.requests.OrderRequest;
@@ -19,9 +23,7 @@ import pt.unl.fct.di.novasys.network.data.Host;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Properties;
+import java.util.*;
 
 /**
  * This is NOT fully functional StateMachine implementation.
@@ -49,6 +51,18 @@ public class ABD extends GenericProtocol {
     private State state;
     private List<Host> membership;
     private int nextInstance;
+
+    // Op Type:
+    // 0 - Read
+    // 1 - Write
+    private List<Operation> pendingOperations;
+    private List<ReadTagRepMsg> answers;
+    private Map<Integer, String> tag;
+    private Map<Integer, byte[]> val;
+
+    // TODO: Mudar para timestamp
+    private int opSeq;
+
 
     public ABD(Properties props) throws IOException, HandlerRegistrationException {
         super(PROTOCOL_NAME, PROTOCOL_ID);
@@ -80,6 +94,11 @@ public class ABD extends GenericProtocol {
 
         /*--------------------- Register Notification Handlers ----------------------------- */
         subscribeNotification(DecidedNotification.NOTIFICATION_ID, this::uponDecidedNotification);
+
+
+        pendingOperations = new LinkedList<>();
+        answers = new LinkedList<>();
+        opSeq = 0;
     }
 
     @Override
@@ -170,5 +189,75 @@ public class ABD extends GenericProtocol {
     private void uponInConnectionDown(InConnectionDown event, int channelId) {
         logger.trace("Connection from {} is down, cause: {}", event.getNode(), event.getCause());
     }
+
+    /* --------------------------------- Functions ---------------------------- */
+
+    private void writeOperation(Operation operation) {
+        //You should write the operation to the state machine
+        pendingOperations.add(operation);
+        opSeq++;
+
+        // Trigger broadcast
+        for (Host h : membership) {
+            if (!h.equals(self)) {
+                // Send write request
+                //sendRequest(new WriteRequest(opSeq, operation), AGREEMENT_PROTOCOL_ID);
+                ProtoMessage msg = new ReadTagMsg(opSeq, operation.getKey());
+                openConnection(h);
+                sendMessage(msg, h);
+            }
+        }
+    }
+
+    private void readOperation(Operation operation) {
+        //You should read the operation from the state machine
+        // TODO: DO LATER
+    }
+
+    // Upon bebBcastDeliver (READ_Tag, id, k ,     p)
+    private void uponReceiveBroadcast(ProtoMessage msg, Host from, short sourceProto, int channelId){
+
+        String aux = ((ReadTagMsg) msg).getKey();
+        String tsSend;
+        if (!tag.containsKey(aux))
+            tsSend = "0";
+        else
+            tsSend = tag.get(aux);
+
+        ProtoMessage msgToSend = new ReadTagRepMsg(((ReadTagMsg) msg).getOpSeq(), tsSend);
+
+        openConnection(from);
+        sendMessage(msgToSend, from);
+    }
+
+    private void uponReceive(ProtoMessage msg, Host from, short sourceProto, int channelId){
+        int opSeqMsg = ((ReadTagRepMsg) msg).getOpSeq();
+        if (opSeqMsg == opSeq) {
+            answers.add((ReadTagRepMsg) msg);
+            if (answers.size() == membership.size() + 1) {
+                // Get the tag with the highest timestamp
+                int newTag = 0;
+
+                for (ReadTagRepMsg msgAux : answers) {
+                    if (Integer.parseInt(msgAux.getTag()) > newTag)
+                        newTag = Integer.parseInt(msgAux.getTag());
+                }
+                opSeq++;
+                answers.clear();
+                // Send write request
+                for (Host h : membership) {
+                    if (!h.equals(self)) {
+                        //ProtoMessage msgToSend = new ReadTagRepMsg(opSeq, maxTag);
+                        openConnection(h);
+                        //sendMessage(msgToSend, h);
+                    }
+                }
+                pendingOperations.clear();
+            }
+        }
+    }
+
+
+
 
 }

@@ -100,9 +100,9 @@ public class HashApp extends GenericProtocol {
 
 		/*-------------------- Register Execute Notification Handler --------------- */
 		subscribeNotification(ExecuteNotification.NOTIFICATION_ID, this::uponExecuteNotification); //For Paxos interaction
-		subscribeNotification(ReadCompleteNotification.NOTIFICATION_ID, this::uponReadCompleteNotification); //For ABD interaction
-		subscribeNotification(WriteCompleteNotification.NOTIFICATION_ID, this::uponWriteCompleteNotification); //For ABD interaction
-		subscribeNotification(UpdateValueNotification.NOTIFICATION_ID, this::uponUpdateValueNotification); //For ABD interaction
+		//subscribeNotification(ReadCompleteNotification.NOTIFICATION_ID, this::uponReadCompleteNotification); //For ABD interaction
+		//subscribeNotification(WriteCompleteNotification.NOTIFICATION_ID, this::uponWriteCompleteNotification); //For ABD interaction
+		//subscribeNotification(UpdateValueNotification.NOTIFICATION_ID, this::uponUpdateValueNotification); //For ABD interaction
 
 		/*-------------------- Register Request Handler ---------------------------- */
 		registerRequestHandler(CurrentStateRequest.REQUEST_ID, this::uponCurrentStateRequest);
@@ -156,11 +156,11 @@ public class HashApp extends GenericProtocol {
 			//ABD interaction
 			if(msg.getOpType() == RequestMessage.READ) {
 
-				sendRequest(new ReadRequest(opUUID, msg.getKey().getBytes()), ABD.PROTOCOL_ID);
+				//sendRequest(new ReadRequest(opUUID, msg.getKey().getBytes()), ABD.PROTOCOL_ID);
 
 			} else if (msg.getOpType() == RequestMessage.WRITE) {
 
-				sendRequest(new WriteRequest(opUUID, msg.getKey().getBytes(), msg.getData()), ABD.PROTOCOL_ID);
+				//sendRequest(new WriteRequest(opUUID, msg.getKey().getBytes(), msg.getData()), ABD.PROTOCOL_ID);
 
 			} else {
 				System.err.println("Invalid client operation");
@@ -208,7 +208,7 @@ public class HashApp extends GenericProtocol {
 	}
 
 	//The following 3 handlers are are executed only for the abd stack
-	private void uponReadCompleteNotification(ReadCompleteNotification not, short sourceProto) {
+	/*private void uponReadCompleteNotification(ReadCompleteNotification not, short sourceProto) {
 		String key = new String(not.getKey(),0,not.getKey().length);
 		this.data.put(key, not.getValue());
 		
@@ -235,7 +235,7 @@ public class HashApp extends GenericProtocol {
 		data.put(new String(not.getKey(),0,not.getKey().length), not.getValue());
 
 		this.updateOperationCountAndPrintHash();
-	}
+	}*/
 
 
 	private void updateOperationCountAndPrintHash() {
