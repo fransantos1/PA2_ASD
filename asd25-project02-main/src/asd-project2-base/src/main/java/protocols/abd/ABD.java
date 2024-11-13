@@ -48,13 +48,21 @@ public class ABD extends GenericProtocol {
     private final Host self;     //My own address/port
     private final int channelId; //Id of the created channel
 
+    private Map<Long, Long> stateMap;
+
     private State state;
     private List<Host> membership;
     private int nextInstance;
 
-    // Op Type:
-    // 0 - Read
-    // 1 - Write
+    /**
+     * A list of pending operations.
+     * <p>
+     * Operation types:
+     * <ul>
+     *   <li><code>0</code> - Read</li>
+     *   <li><code>1</code> - Write</li>
+     * </ul>
+     */
     private List<Operation> pendingOperations;
     private List<ReadTagRepMsg> answers;
     private Map<Integer, String> tag;
@@ -219,10 +227,7 @@ public class ABD extends GenericProtocol {
 
         String aux = ((ReadTagMsg) msg).getKey();
         String tsSend;
-        if (!tag.containsKey(aux))
-            tsSend = "0";
-        else
-            tsSend = tag.get(aux);
+        tsSend = tag.getOrDefault(aux, "0");
 
         ProtoMessage msgToSend = new ReadTagRepMsg(((ReadTagMsg) msg).getOpSeq(), tsSend);
 
@@ -255,6 +260,13 @@ public class ABD extends GenericProtocol {
                 pendingOperations.clear();
             }
         }
+    }
+
+    private void uponBebBcastDeliverWrite(ProtoMessage msg, Host from, short sourceProto, int channelId){
+
+
+
+
     }
 
 
