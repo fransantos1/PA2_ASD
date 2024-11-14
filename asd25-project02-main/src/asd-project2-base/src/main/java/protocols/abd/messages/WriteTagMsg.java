@@ -13,11 +13,11 @@ public class WriteTagMsg extends ProtoMessage {
     public static final short MSG_ID = 203;
 
     private final int opSeq;
-    private final String key;
+    private final long key;
     private final int newTag;
-    private final List<Operation> pending;
+    private final long pending;
 
-    public WriteTagMsg(int opSeq, String key, int newTag, List<Operation> pending){
+    public WriteTagMsg(int opSeq, long key, int newTag, long pending){
         super(MSG_ID);
         this.opSeq = opSeq;
         this.key = key;
@@ -29,11 +29,11 @@ public class WriteTagMsg extends ProtoMessage {
         return opSeq;
     }
 
-    public List<Operation> getPending() {
+    public long getPending() {
         return pending;
     }
 
-    public String getKey() {
+    public long getKey() {
         return key;
     }
 
@@ -46,19 +46,24 @@ public class WriteTagMsg extends ProtoMessage {
         public void serialize(WriteTagMsg sampleMessage, ByteBuf out) throws IOException {
             out.writeInt(sampleMessage.opSeq);
 
-            out.writeInt(sampleMessage.key.length());
-            out.writeBytes(sampleMessage.key.getBytes());
+            out.writeLong(sampleMessage.key);
 
             out.writeInt(sampleMessage.newTag);
 
-            out.writeInt(sampleMessage.key.length());
-            out.writeBytes(sampleMessage.key.getBytes());
+            out.writeLong(sampleMessage.pending);
         }
 
         @Override
         public WriteTagMsg deserialize(ByteBuf in) throws IOException {
+            int opSeq = in.readInt();
 
-            return new WriteTagMsg(opSeq, aux);
+            long key = in.readLong();
+
+            int newTag = in.readInt();
+
+            long pending = in.readLong();
+
+            return new WriteTagMsg(opSeq, key, newTag, pending);
         }
     };
 }

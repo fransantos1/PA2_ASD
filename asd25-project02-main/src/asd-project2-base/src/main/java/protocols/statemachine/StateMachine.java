@@ -1,5 +1,6 @@
 package protocols.statemachine;
 
+import protocols.abd.utils.OperationClass;
 import protocols.agreement.notifications.JoinedNotification;
 import protocols.app.utils.Operation;
 import protocols.statemachine.messages.JoinReplyMsg;
@@ -51,12 +52,9 @@ public class StateMachine extends GenericProtocol {
     private State state;
     private List<Host> membership;
     private int nextInstance;
-
+    private HashMap<Long, Long> stateMap;
     private Dictionary<Short,OrderRequest> bufferedReq;
-
-    private ArrayList<Operation> DLT;
-
-
+    private ArrayList<OperationClass> DLT;
 
     public StateMachine(Properties props) throws IOException, HandlerRegistrationException {
         super(PROTOCOL_NAME, PROTOCOL_ID);

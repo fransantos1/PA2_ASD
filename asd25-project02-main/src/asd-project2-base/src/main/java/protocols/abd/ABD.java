@@ -5,6 +5,8 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.Message;
 import protocols.abd.messages.ReadTagMsg;
 import protocols.abd.messages.ReadTagRepMsg;
+import protocols.abd.messages.WriteTagMsg;
+import protocols.abd.utils.OperationClass;
 import protocols.agreement.IncorrectAgreement;
 import protocols.agreement.notifications.DecidedNotification;
 import protocols.agreement.notifications.JoinedNotification;
@@ -23,6 +25,7 @@ import pt.unl.fct.di.novasys.network.data.Host;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.sql.Timestamp;
 import java.util.*;
 
 /**
@@ -48,29 +51,17 @@ public class ABD extends GenericProtocol {
     private final Host self;     //My own address/port
     private final int channelId; //Id of the created channel
 
-    private Map<Long, Long> stateMap;
-
     private State state;
     private List<Host> membership;
     private int nextInstance;
 
-    /**
-     * A list of pending operations.
-     * <p>
-     * Operation types:
-     * <ul>
-     *   <li><code>0</code> - Read</li>
-     *   <li><code>1</code> - Write</li>
-     * </ul>
-     */
-    private List<Operation> pendingOperations;
+    private List<OperationClass> pendingOperations;
     private List<ReadTagRepMsg> answers;
-    private Map<Integer, String> tag;
-    private Map<Integer, byte[]> val;
+    private Map<Long, Timestamp> tag;
+    private Map<Long, Long> val;
 
     // TODO: Mudar para timestamp
     private int opSeq;
-
 
     public ABD(Properties props) throws IOException, HandlerRegistrationException {
         super(PROTOCOL_NAME, PROTOCOL_ID);
@@ -100,12 +91,14 @@ public class ABD extends GenericProtocol {
         /*--------------------- Register Request Handlers ----------------------------- */
         registerRequestHandler(OrderRequest.REQUEST_ID, this::uponOrderRequest);
 
-        /*--------------------- Register Notification Handlers ----------------------------- */
+        /*--------------------- Register Notification Handlers ------------------------ */
         subscribeNotification(DecidedNotification.NOTIFICATION_ID, this::uponDecidedNotification);
 
 
         pendingOperations = new LinkedList<>();
         answers = new LinkedList<>();
+        tag = new HashMap<>();
+        val = new HashMap<>();
         opSeq = 0;
     }
 
@@ -144,7 +137,7 @@ public class ABD extends GenericProtocol {
 
     }
 
-    /*--------------------------------- Requests ---------------------------------------- */
+    /* --------------------------------- Requests ---------------------------------------- */
     private void uponOrderRequest(OrderRequest request, short sourceProto) {
         logger.debug("Received request: " + request);
         if (state == State.JOINING) {
@@ -158,7 +151,7 @@ public class ABD extends GenericProtocol {
         }
     }
 
-    /*--------------------------------- Notifications ---------------------------------------- */
+    /* --------------------------------- Notifications ---------------------------------------- */
     private void uponDecidedNotification(DecidedNotification notification, short sourceProto) {
         logger.debug("Received notification: " + notification);
         //Maybe we should make sure operations are executed in order?
@@ -167,7 +160,7 @@ public class ABD extends GenericProtocol {
         triggerNotification(new ExecuteNotification(notification.getOpId(), notification.getOperation()));
     }
 
-    /*--------------------------------- Messages ---------------------------------------- */
+    /* --------------------------------- Messages ---------------------------------------- */
     private void uponMsgFail(ProtoMessage msg, Host host, short destProto, Throwable throwable, int channelId) {
         //If a message fails to be sent, for whatever reason, log the message and the reason
         logger.error("Message {} to {} failed, reason: {}", msg, host, throwable);
@@ -200,7 +193,7 @@ public class ABD extends GenericProtocol {
 
     /* --------------------------------- Functions ---------------------------- */
 
-    private void writeOperation(Operation operation) {
+    private void writeOperation(OperationClass operation) {
         //You should write the operation to the state machine
         pendingOperations.add(operation);
         opSeq++;
@@ -210,9 +203,11 @@ public class ABD extends GenericProtocol {
             if (!h.equals(self)) {
                 // Send write request
                 //sendRequest(new WriteRequest(opSeq, operation), AGREEMENT_PROTOCOL_ID);
-                ProtoMessage msg = new ReadTagMsg(opSeq, operation.getKey());
+                ProtoMessage msg = new ReadTagMsg(opSeq, operation.getSender_id());
                 openConnection(h);
                 sendMessage(msg, h);
+                ProtoMessage msg2 = new ReadTagMsg(opSeq, operation.getReceiver_id());
+                sendMessage(msg2, h);
             }
         }
     }
@@ -252,7 +247,7 @@ public class ABD extends GenericProtocol {
                 // Send write request
                 for (Host h : membership) {
                     if (!h.equals(self)) {
-                        //ProtoMessage msgToSend = new ReadTagRepMsg(opSeq, maxTag);
+                        WriteTagMsg msgToSend = new WriteTagMsg();
                         openConnection(h);
                         //sendMessage(msgToSend, h);
                     }

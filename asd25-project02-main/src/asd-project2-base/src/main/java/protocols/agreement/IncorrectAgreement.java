@@ -24,13 +24,14 @@ import java.util.*;
  * You are free to change/delete ANYTHING in this class, including its fields.
  * Do not assume that any logic implemented here is correct, think for yourself!
  */
+
 public class IncorrectAgreement extends GenericProtocol {
 
     private static final Logger logger = LogManager.getLogger(IncorrectAgreement.class);
 
     //Protocol information, to register in babel
     public final static short PROTOCOL_ID = 100;
-    public final static String PROTOCOL_NAME = "EmptyAgreement";
+    public final static String PROTOCOL_NAME = "MultiPaxos";
 
     private Host myself;
     private int joinedInstance;
@@ -101,14 +102,18 @@ public class IncorrectAgreement extends GenericProtocol {
     }
     private void uponAddReplica(AddReplicaRequest request, short sourceProto) {
         logger.debug("Received " + request);
+
         //The AddReplicaRequest contains an "instance" field, which we ignore in this incorrect protocol.
         //You should probably take it into account while doing whatever you do here.
+
         membership.add(request.getReplica());
     }
     private void uponRemoveReplica(RemoveReplicaRequest request, short sourceProto) {
         logger.debug("Received " + request);
+
         //The RemoveReplicaRequest contains an "instance" field, which we ignore in this incorrect protocol.
         //You should probably take it into account while doing whatever you do here.
+
         membership.remove(request.getReplica());
     }
 

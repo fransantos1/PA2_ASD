@@ -1,3 +1,5 @@
+package protocols.abd.utils;
+
 public class OperationClass {
 
     private String op_id;
