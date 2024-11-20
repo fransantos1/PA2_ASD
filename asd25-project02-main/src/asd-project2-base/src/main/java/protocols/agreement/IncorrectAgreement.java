@@ -33,6 +33,9 @@ public class IncorrectAgreement extends GenericProtocol {
     public final static short PROTOCOL_ID = 100;
     public final static String PROTOCOL_NAME = "MultiPaxos";
 
+
+    private Host leader;
+
     private Host myself;
     private int joinedInstance;
     private List<Host> membership;
@@ -96,9 +99,22 @@ public class IncorrectAgreement extends GenericProtocol {
 
     private void uponProposeRequest(ProposeRequest request, short sourceProto) {
         logger.debug("Received " + request);
+        if(myself.equals(leader)){
+
+
+
+            return;
+        }
         BroadcastMessage msg = new BroadcastMessage(request.getInstance(), request.getOpId(), request.getOperation());
-        logger.debug("Sending to: " + membership);
-        membership.forEach(h -> sendMessage(msg, h));
+        logger.debug("Sending to: " + leader.getAddress());
+        sendMessage(msg, leader);
+
+        //membership.forEach(h -> sendMessage(msg, h));
+
+
+
+
+
     }
     private void uponAddReplica(AddReplicaRequest request, short sourceProto) {
         logger.debug("Received " + request);

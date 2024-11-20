@@ -6,7 +6,6 @@ import org.apache.logging.log4j.message.Message;
 import protocols.abd.messages.ReadTagMsg;
 import protocols.abd.messages.ReadTagRepMsg;
 import protocols.abd.messages.WriteTagMsg;
-import protocols.abd.utils.OperationClass;
 import protocols.agreement.IncorrectAgreement;
 import protocols.agreement.notifications.DecidedNotification;
 import protocols.agreement.notifications.JoinedNotification;
@@ -48,20 +47,20 @@ public class ABD extends GenericProtocol {
     public static final String PROTOCOL_NAME = "ABD";
     public static final short PROTOCOL_ID = 201;
 
-    private final Host self;     //My own address/port
-    private final int channelId; //Id of the created channel
+    private final Host self;     // My own address/port
+    private final int channelId; // Id of the created channel
 
     private State state;
     private List<Host> membership;
     private int nextInstance;
 
-    private List<OperationClass> pendingOperations;
+    private Map<Long, Long> pendingOperations;
     private List<ReadTagRepMsg> answers;
-    private Map<Long, Timestamp> tag;
+    private Map<Long, Long> tag;
     private Map<Long, Long> val;
 
     // TODO: Mudar para timestamp
-    private int opSeq;
+    private long opSeq;
 
     public ABD(Properties props) throws IOException, HandlerRegistrationException {
         super(PROTOCOL_NAME, PROTOCOL_ID);
@@ -95,7 +94,7 @@ public class ABD extends GenericProtocol {
         subscribeNotification(DecidedNotification.NOTIFICATION_ID, this::uponDecidedNotification);
 
 
-        pendingOperations = new LinkedList<>();
+        pendingOperations = new HashMap<>();
         answers = new LinkedList<>();
         tag = new HashMap<>();
         val = new HashMap<>();
@@ -193,9 +192,10 @@ public class ABD extends GenericProtocol {
 
     /* --------------------------------- Functions ---------------------------- */
 
-    private void writeOperation(OperationClass operation) {
+    private void write(long key1, long key2, long v1, long v2) {
         //You should write the operation to the state machine
-        pendingOperations.add(operation);
+        pendingOperations.put(key1, v1);
+        pendingOperations.put(key2, v2);
         opSeq++;
 
         // Trigger broadcast
@@ -203,68 +203,82 @@ public class ABD extends GenericProtocol {
             if (!h.equals(self)) {
                 // Send write request
                 //sendRequest(new WriteRequest(opSeq, operation), AGREEMENT_PROTOCOL_ID);
-                ProtoMessage msg = new ReadTagMsg(opSeq, operation.getSender_id());
+                ProtoMessage msg = new ReadTagMsg(opSeq, key1, key2);
                 openConnection(h);
                 sendMessage(msg, h);
-                ProtoMessage msg2 = new ReadTagMsg(opSeq, operation.getReceiver_id());
-                sendMessage(msg2, h);
             }
         }
     }
 
-    private void readOperation(Operation operation) {
-        //You should read the operation from the state machine
-        // TODO: DO LATER
-    }
-
-    // Upon bebBcastDeliver (READ_Tag, id, k ,     p)
+    // Upon bebBcastDeliver ( (READ_Tag, id, k), p)
     private void uponReceiveBroadcast(ProtoMessage msg, Host from, short sourceProto, int channelId){
 
-        String aux = ((ReadTagMsg) msg).getKey();
-        String tsSend;
-        tsSend = tag.getOrDefault(aux, "0");
+        Long key1 = ((ReadTagMsg) msg).getKey1();
+        Long key2 = ((ReadTagMsg) msg).getKey2();
 
-        ProtoMessage msgToSend = new ReadTagRepMsg(((ReadTagMsg) msg).getOpSeq(), tsSend);
+        long tag1 = tag.getOrDefault(key1, opSeq);
+        long tag2 = tag.getOrDefault(key2, opSeq);
+
+        long oSeq = ((ReadTagMsg) msg).getOpSeq();
+
+        ProtoMessage msgToSend = new ReadTagRepMsg(oSeq, tag1, tag2, key1, key2);
 
         openConnection(from);
         sendMessage(msgToSend, from);
     }
 
-    private void uponReceive(ProtoMessage msg, Host from, short sourceProto, int channelId){
-        int opSeqMsg = ((ReadTagRepMsg) msg).getOpSeq();
-        if (opSeqMsg == opSeq) {
-            answers.add((ReadTagRepMsg) msg);
-            if (answers.size() == membership.size() + 1) {
-                // Get the tag with the highest timestamp
-                int newTag = 0;
+    private void uponReceive (ProtoMessage msg, Host from, short sourceProto, int channelId) {
+        long id = (( ReadTagRepMsg ) msg).getOpSeq();
 
-                for (ReadTagRepMsg msgAux : answers) {
-                    if (Integer.parseInt(msgAux.getTag()) > newTag)
-                        newTag = Integer.parseInt(msgAux.getTag());
-                }
-                opSeq++;
-                answers.clear();
-                // Send write request
-                for (Host h : membership) {
-                    if (!h.equals(self)) {
-                        WriteTagMsg msgToSend = new WriteTagMsg();
-                        openConnection(h);
-                        //sendMessage(msgToSend, h);
-                    }
-                }
-                pendingOperations.clear();
+        if (opSeq == id){
+            answers.add((ReadTagRepMsg) msg);
+        }
+
+        if(answers.size() == membership.size() + 1){
+            long newTag1 = 0;
+            long newTag2 = 0;
+
+            for (ReadTagRepMsg msgAux : answers) {
+                if (msgAux.getTag1() > newTag1)
+                    newTag1 = msgAux.getTag1();
+                if (msgAux.getTag2() > newTag2)
+                    newTag2 = msgAux.getTag2();
             }
+            opSeq++;
+            answers.clear();
+
+            long key1 = ((ReadTagRepMsg ) msg).getKey1();
+            long key2 = ((ReadTagRepMsg ) msg).getKey2();
+            // Send write request
+            for (Host h : membership) {
+                if (!h.equals(self)) {
+                    WriteTagMsg msgToSend = new WriteTagMsg(opSeq, key1, key2, newTag1, newTag2, pendingOperations.get(key1), pendingOperations.get(key2));
+                    openConnection(h);
+                    //sendMessage(msgToSend, h);
+                }
+            }
+            pendingOperations.clear();
         }
     }
 
-    private void uponBebBcastDeliverWrite(ProtoMessage msg, Host from, short sourceProto, int channelId){
-
-
-
+    private void uponBebBcastDeliver(ProtoMessage msg, Host from, short sourceProto, int channelId){
+        long newTag1 = ((WriteTagMsg ) msg).getNewTag1();
+        long key1 = ((WriteTagMsg ) msg).getKey1();
+        if(newTag1 > tag.get(key1)){
+            tag.remove(key1);
+            tag.put(key1, newTag1);
+            val.remove(key1);
+            val.put(key1, ((WriteTagMsg ) msg).getNewValue1());
+        }
+        long newTag2 = ((WriteTagMsg ) msg).getNewTag2();
+        long key2 = ((WriteTagMsg ) msg).getKey2();
+        if(newTag2 > tag.get(key2)){
+            tag.remove(key2);
+            tag.put(key2, newTag2);
+            val.remove(key2);
+            val.put(key2, ((WriteTagMsg ) msg).getNewValue2());
+        }
 
     }
-
-
-
 
 }

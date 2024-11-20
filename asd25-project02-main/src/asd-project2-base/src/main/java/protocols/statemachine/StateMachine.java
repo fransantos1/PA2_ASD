@@ -1,12 +1,12 @@
 package protocols.statemachine;
 
-import protocols.abd.utils.OperationClass;
 import protocols.agreement.notifications.JoinedNotification;
-import protocols.app.utils.Operation;
 import protocols.statemachine.messages.JoinReplyMsg;
 import protocols.statemachine.requests.JoinRequest;
+import protocols.statemachine.timer.JoiningTimer;
 import pt.unl.fct.di.novasys.babel.core.GenericProtocol;
 import pt.unl.fct.di.novasys.babel.exceptions.HandlerRegistrationException;
+import pt.unl.fct.di.novasys.babel.exceptions.InvalidParameterException;
 import pt.unl.fct.di.novasys.babel.generic.ProtoMessage;
 import pt.unl.fct.di.novasys.channel.tcp.TCPChannel;
 import pt.unl.fct.di.novasys.channel.tcp.events.*;
@@ -23,6 +23,8 @@ import protocols.statemachine.requests.OrderRequest;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 
 
@@ -45,27 +47,42 @@ public class StateMachine extends GenericProtocol {
     //Protocol information, to register in babel
     public static final String PROTOCOL_NAME = "StateMachine";
     public static final short PROTOCOL_ID = 200;
-
+    
     private final Host self;     //My own address/port
     private final int channelId; //Id of the created channel
-
+        
+    private  final int timeOutTime = 10000;//10s
+    private final int timeOutTries = 5;
+    
     private State state;
     private List<Host> membership;
     private int nextInstance;
+
+
+    // to mantain the membership
+    //max timeout 10s
+    private HashMap<Host, Long> lastCommunication;
+    private HashMap<Host, Integer> timeOutHosts;
+
+
+
     private HashMap<Long, Long> stateMap;
     private Dictionary<Short,OrderRequest> bufferedReq;
-    private ArrayList<OperationClass> DLT;
+    List<Host> initialMembership;
 
-    public StateMachine(Properties props) throws IOException, HandlerRegistrationException {
+    public StateMachine(Properties props) throws IOException, HandlerRegistrationException, InvalidParameterException {
         super(PROTOCOL_NAME, PROTOCOL_ID);
         nextInstance = 0;
-        DLT = new ArrayList<>();
+        bufferedReq = new Hashtable<>();
+        stateMap = new HashMap<>();
+
 
         String address = props.getProperty("address");
         String port = props.getProperty("p2p_port");
 
         logger.info("Listening on {}:{}", address, port);
         this.self = new Host(InetAddress.getByName(address), Integer.parseInt(port));
+
 
         Properties channelProps = new Properties();
         channelProps.setProperty(TCPChannel.ADDRESS_KEY, address);
@@ -90,6 +107,13 @@ public class StateMachine extends GenericProtocol {
 
         /*--------------------- Register Message Handlers ----------------------------- */
        //registerMessageHandler(channelId, JoinReplyMsg.MSG_ID, JoinReplyMsg.serializer);
+
+
+        /*--------------------- Register Timer Handlers ----------------------------- */
+
+        registerTimerHandler(JoiningTimer.TIMER_ID, this::requestToJoin);
+        registerTimerHandler(JoiningTimer.TIMER_ID, this::requestToJoin);
+
     }
 
     @Override
@@ -99,7 +123,7 @@ public class StateMachine extends GenericProtocol {
 
         String host = props.getProperty("initial_membership");
         String[] hosts = host.split(",");
-        List<Host> initialMembership = new LinkedList<>();
+        initialMembership = new LinkedList<>();
         for (String s : hosts) {
             String[] hostElements = s.split(":");
             Host h;
@@ -123,8 +147,9 @@ public class StateMachine extends GenericProtocol {
             state = State.JOINING;
             logger.info("Starting in JOINING as I am not part of initial membership");
             //You have to do something to join the system and know which instance you joined
-            requestToJoin(initialMembership);
 
+            // Start timer trigger to requestToJoin
+            setupPeriodicTimer(new JoiningTimer(), 1000, 5000);
             // (and copy the state of that instance)
         }
 
@@ -141,19 +166,20 @@ public class StateMachine extends GenericProtocol {
         }
     }
 
+
+
     /*--------------------------------- Requests ---------------------------------------- */
-
-
     private void uponOrderRequest(OrderRequest request, short sourceProto) {
         logger.debug("Received request: " + request);
         if (state == State.JOINING) {
             bufferedReq.put(request.getId(), request);
-
         } else if (state == State.ACTIVE) {
+
             //Also do something starter, we don't want an infinite number of instances active
         	//Maybe you should modify what is it that you are proposing so that you remember that this
         	//operation was issued by the application (and not an internal operation, check the uponDecidedNotification)
-                sendRequest(new ProposeRequest(nextInstance++, request.getOpId(), request.getOperation()),
+
+            sendRequest(new ProposeRequest(nextInstance++, request.getOpId(), request.getOperation()),
                         IncorrectAgreement.PROTOCOL_ID);
         }
     }
@@ -169,15 +195,51 @@ public class StateMachine extends GenericProtocol {
 
     }
 
-    /*--------------------------------- Messages ---------------------------------------- */
+    /*---------------------------------Sending Messages ---------------------------------------- */
+    /* ---- Timer Events ---- */
 
-    private void requestToJoin(List<Host> initialMembership) {
-        for(Host host : initialMembership) {
-            openConnection(host);
-            sendMessage(new JoinRequest(self), host);
-        }
+    int requestToJoinIndex = 0;
+    private void requestToJoin(JoiningTimer timer, long timerId) {
+        Host host = initialMembership.get(requestToJoinIndex);
+        openConnection(host);
+        sendMessage(new JoinRequest(self), host);
+        requestToJoinIndex++;
     }
 
+    private void heartBeat(JoiningTimer timer, long timerId) {
+
+        for(Map.Entry<Host, Long> entry : lastCommunication.entrySet()) {
+            Host key = entry.getKey();
+            Long value = entry.getValue();
+            Long currentTime = System.currentTimeMillis();
+
+            if(currentTime-value > timeOutTime){
+                //! remove from membership
+                timeOutHosts.put(key, 0);
+            }else{
+                timeOutHosts.remove(key);
+            }
+        }
+        for(Map.Entry<Host, Integer> entry : timeOutHosts.entrySet()) {
+            Host key = entry.getKey();
+            Integer tries = entry.getValue();
+            if(tries > timeOutTries){
+                timeOutHosts.remove(key);
+                lastCommunication.remove(key);
+
+                //! remove from membership
+                continue;
+            }
+
+            entry.setValue(tries+1);
+            //send message
+        }
+
+
+    }
+
+
+    /*---------------------------------Receiving Messages ---------------------------------------- */
     private void uponRequestToJoin(JoinRequest request, Host from, short sourceProto, int channelId) {
         logger.info("Received JoinReply from {}",from);
         List<Host> currentMembership = new LinkedList<>(membership);
@@ -187,7 +249,11 @@ public class StateMachine extends GenericProtocol {
         sendMessage(msg, request.getRequester());
 
         logger.info("Sent JoinReply to {}",request.getRequester());
+        //Propose to the multipaxos
     }
+
+
+
 
     private void uponJoinReply(JoinReplyMsg reply, Host from,short sourceProto, int channelId) {
         logger.info("Received JoinReply from {} with membership: {}", from, reply.getCurrentMembership());
@@ -233,5 +299,10 @@ public class StateMachine extends GenericProtocol {
     private void uponInConnectionDown(InConnectionDown event, int channelId) {
         logger.trace("Connection from {} is down, cause: {}", event.getNode(), event.getCause());
     }
+
+
+
+
+
 
 }
