@@ -6,15 +6,15 @@ import pt.unl.fct.di.novasys.network.ISerializer;
 
 import java.io.IOException;
 
-public class AckMsg extends ProtoMessage {
+public class ReadMsg extends ProtoMessage {
 
-    public static final short MSG_ID = 204;
+    public static final short MSG_ID = 205;
 
     private final long opSeq;
     private final long key1;
     private final long key2;
 
-    public AckMsg(long opSeq, long key1, long key2) {
+    public ReadMsg(long opSeq, long key1, long key2) {
         super(MSG_ID);
         this.opSeq = opSeq;
         this.key1 = key1;
@@ -33,21 +33,20 @@ public class AckMsg extends ProtoMessage {
         return key2;
     }
 
-    public static ISerializer<AckMsg> serializer = new ISerializer<>() {
+    public static ISerializer<ReadMsg> serializer = new ISerializer<>() {
         @Override
-        public void serialize(AckMsg sampleMessage, ByteBuf out) throws IOException {
+        public void serialize(ReadMsg sampleMessage, ByteBuf out) throws IOException {
             out.writeLong(sampleMessage.opSeq);
             out.writeLong(sampleMessage.key1);
             out.writeLong(sampleMessage.key2);
         }
 
         @Override
-        public AckMsg deserialize(ByteBuf in) throws IOException {
+        public ReadMsg deserialize(ByteBuf in) throws IOException {
             long opSeq = in.readLong();
             long key1 = in.readLong();
             long key2 = in.readLong();
-            return new AckMsg(opSeq, key1, key2);
+            return new ReadMsg(opSeq, key1, key2);
         }
     };
-
 }

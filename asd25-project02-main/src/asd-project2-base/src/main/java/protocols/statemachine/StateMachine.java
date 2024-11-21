@@ -156,6 +156,7 @@ public class StateMachine extends GenericProtocol {
     }
 
 
+
     private void processBufferedRequests() {
         logger.info("Processing buffered requests now that state is ACTIVE");
         Enumeration<OrderRequest> requests = bufferedReq.elements();

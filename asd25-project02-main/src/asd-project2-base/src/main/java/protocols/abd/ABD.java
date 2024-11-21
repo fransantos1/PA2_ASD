@@ -3,9 +3,7 @@ package protocols.abd;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.Message;
-import protocols.abd.messages.ReadTagMsg;
-import protocols.abd.messages.ReadTagRepMsg;
-import protocols.abd.messages.WriteTagMsg;
+import protocols.abd.messages.*;
 import protocols.agreement.IncorrectAgreement;
 import protocols.agreement.notifications.DecidedNotification;
 import protocols.agreement.notifications.JoinedNotification;
@@ -55,7 +53,7 @@ public class ABD extends GenericProtocol {
     private int nextInstance;
 
     private Map<Long, Long> pendingOperations;
-    private List<ReadTagRepMsg> answers;
+    private List<ProtoMessage> answers;
     private Map<Long, Long> tag;
     private Map<Long, Long> val;
 
@@ -211,7 +209,7 @@ public class ABD extends GenericProtocol {
     }
 
     // Upon bebBcastDeliver ( (READ_Tag, id, k), p)
-    private void uponReceiveBroadcast(ProtoMessage msg, Host from, short sourceProto, int channelId){
+    private void uponReceiveBroadcastWrite(ProtoMessage msg, Host from, short sourceProto, int channelId){
 
         Long key1 = ((ReadTagMsg) msg).getKey1();
         Long key2 = ((ReadTagMsg) msg).getKey2();
@@ -232,32 +230,32 @@ public class ABD extends GenericProtocol {
 
         if (opSeq == id){
             answers.add((ReadTagRepMsg) msg);
-        }
+            if(answers.size() == membership.size() + 1){
+                long newTag1 = 0;
+                long newTag2 = 0;
 
-        if(answers.size() == membership.size() + 1){
-            long newTag1 = 0;
-            long newTag2 = 0;
-
-            for (ReadTagRepMsg msgAux : answers) {
-                if (msgAux.getTag1() > newTag1)
-                    newTag1 = msgAux.getTag1();
-                if (msgAux.getTag2() > newTag2)
-                    newTag2 = msgAux.getTag2();
-            }
-            opSeq++;
-            answers.clear();
-
-            long key1 = ((ReadTagRepMsg ) msg).getKey1();
-            long key2 = ((ReadTagRepMsg ) msg).getKey2();
-            // Send write request
-            for (Host h : membership) {
-                if (!h.equals(self)) {
-                    WriteTagMsg msgToSend = new WriteTagMsg(opSeq, key1, key2, newTag1, newTag2, pendingOperations.get(key1), pendingOperations.get(key2));
-                    openConnection(h);
-                    //sendMessage(msgToSend, h);
+                for (ProtoMessage msgAux : answers) {
+                    if (((ReadTagRepMsg ) msgAux).getTag1() > newTag1)
+                        newTag1 = ((ReadTagRepMsg ) msgAux).getTag1();
+                    if (((ReadTagRepMsg ) msgAux).getTag2() > newTag2)
+                        newTag2 = ((ReadTagRepMsg ) msgAux).getTag2();
                 }
+
+                opSeq++;
+                answers.clear();
+
+                long key1 = ((ReadTagRepMsg ) msg).getKey1();
+                long key2 = ((ReadTagRepMsg ) msg).getKey2();
+                // Send write request
+                for (Host h : membership) {
+                    if (!h.equals(self)) {
+                        WriteTagMsg msgToSend = new WriteTagMsg(opSeq, key1, key2, newTag1, newTag2, pendingOperations.get(key1), pendingOperations.get(key2));
+                        openConnection(h);
+                        sendMessage(msgToSend, h);
+                    }
+                }
+                pendingOperations.clear();
             }
-            pendingOperations.clear();
         }
     }
 
@@ -279,6 +277,100 @@ public class ABD extends GenericProtocol {
             val.put(key2, ((WriteTagMsg ) msg).getNewValue2());
         }
 
+        long oSeq = ((WriteTagMsg ) msg).getOpSeq();
+        AckMsg ackMsg = new AckMsg(oSeq, key1, key2);
+        openConnection(from);
+        sendMessage(ackMsg, from);
     }
+
+    private void uponAck(ProtoMessage msg, Host from, short sourceProto, int channelId){
+        long id = ((AckMsg ) msg).getOpSeq();
+        if(opSeq == id){
+            answers.add(msg);
+            if(answers.size() == membership.size() + 1) {
+                answers.clear();
+                if (pendingOperations.isEmpty())
+                    // writeOK
+                    return;
+                else
+                    // ReadOk;
+                    return;
+            }
+            // TODO: Ver dps se faz sentido dar clear ao pending!!
+        }
+
+    }
+
+    private void read(long key1, long key2){
+        opSeq++;
+        answers.clear();
+        for (Host h : membership) {
+            if (!h.equals(self)) {
+                ReadMsg msgToSend = new ReadMsg(opSeq, key1, key2);
+                openConnection(h);
+                sendMessage(msgToSend, h);
+            }
+        }
+    }
+
+    private void uponReceiveBroadcastRead(ProtoMessage msg, Host from, short sourceProto, int channelId){
+
+        Long key1 = ((ReadMsg) msg).getKey1();
+        Long key2 = ((ReadMsg) msg).getKey2();
+
+        long tag1 = tag.getOrDefault(key1, opSeq);
+        long tag2 = tag.getOrDefault(key2, opSeq);
+
+        long val1 = val.get(key1);
+        long val2 = val.get(key2);
+
+        long oSeq = ((ReadMsg) msg).getOpSeq();
+
+        ProtoMessage msgToSend = new ReadReplyMsg(oSeq, key1, key2, tag1, tag2, val1, val2);
+
+        openConnection(from);
+        sendMessage(msgToSend, from);
+    }
+
+    private void uponReceiveReadReply(ProtoMessage msg, Host from, short sourceProto, int channelId){
+        long id = ((ReadReplyMsg ) msg).getOpSeq();
+        if(opSeq == id){
+            answers.add(msg);
+            if (answers.size() > membership.size() +1){
+                long newTag1 = 0;
+                long newTag2 = 0;
+                long val1 = Long.MIN_VALUE;
+                long val2 = Long.MIN_VALUE;
+
+                for (ProtoMessage msgAux : answers) {
+                    // TODO: Maybe a Check related with the type of msg
+
+                    if (((ReadReplyMsg ) msgAux).getTag1() > newTag1){
+                        newTag1 = ((ReadReplyMsg ) msgAux).getTag1();
+                        val1 = ((ReadReplyMsg ) msgAux).getVal1();
+                    }
+                    if (((ReadReplyMsg ) msgAux).getTag2() > newTag2){
+                        newTag2 = ((ReadReplyMsg ) msgAux).getTag2();
+                        val2 = ((ReadReplyMsg ) msgAux).getVal2();
+                    }
+                }
+                long key1 = ((ReadReplyMsg) msg).getKey1();
+                long key2 = ((ReadReplyMsg) msg).getKey2();
+                pendingOperations.put(key1, val1);
+                pendingOperations.put(key2, val2);
+                opSeq++;
+                answers.clear();
+                for (Host h : membership) {
+                    if (!h.equals(self)) {
+                        WriteTagMsg msgToSend = new WriteTagMsg(opSeq, key1, key2, newTag1, newTag2, pendingOperations.get(key1), pendingOperations.get(key2));
+                        openConnection(h);
+                        sendMessage(msgToSend, h);
+                    }
+                }
+            }
+        }
+    }
+
+
 
 }
