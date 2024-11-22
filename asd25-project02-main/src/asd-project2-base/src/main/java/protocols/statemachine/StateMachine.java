@@ -49,6 +49,8 @@ public class StateMachine extends GenericProtocol {
     public static final short PROTOCOL_ID = 200;
     
     private final Host self;     //My own address/port
+    private Host leader = null;
+
     private final int channelId; //Id of the created channel
         
     private  final int timeOutTime = 10000;//10s
@@ -135,6 +137,7 @@ public class StateMachine extends GenericProtocol {
             initialMembership.add(h);
         }
 
+
         if (initialMembership.contains(self)) {
             state = State.ACTIVE;
             logger.info("Starting in ACTIVE as I am part of initial membership");
@@ -162,6 +165,8 @@ public class StateMachine extends GenericProtocol {
         Enumeration<OrderRequest> requests = bufferedReq.elements();
         while(requests.hasMoreElements()) {
             OrderRequest req = requests.nextElement();
+
+            //! CHANGE THIS TO SEND TO LEADER
             sendRequest(new ProposeRequest(nextInstance++, req.getOpId(), req.getOperation()),
                     IncorrectAgreement.PROTOCOL_ID);
         }
@@ -189,7 +194,11 @@ public class StateMachine extends GenericProtocol {
     private void uponDecidedNotification(DecidedNotification notification, short sourceProto) {
         logger.debug("Received notification: " + notification);
         //Maybe we should make sure operations are executed in order?
+        // what
+
+
         //You should be careful and check if this operation if an application operation (and send it up)
+
         //or if this is an operations that was executed by the state machine itself (in which case you should execute)
         //DLT.add(new OperationClass(notification.getOpId(), notification.getOperation()));
         triggerNotification(new ExecuteNotification(notification.getOpId(), notification.getOperation()));
@@ -201,9 +210,11 @@ public class StateMachine extends GenericProtocol {
 
     int requestToJoinIndex = 0;
     private void requestToJoin(JoiningTimer timer, long timerId) {
+        if(requestToJoinIndex >= membership.size()) {requestToJoinIndex = 0;}
         Host host = initialMembership.get(requestToJoinIndex);
+
         openConnection(host);
-        sendMessage(new JoinRequest(self), host);
+        //sendMessage(new JoinRequest(self), host);
         requestToJoinIndex++;
     }
 
@@ -243,6 +254,14 @@ public class StateMachine extends GenericProtocol {
     /*---------------------------------Receiving Messages ---------------------------------------- */
     private void uponRequestToJoin(JoinRequest request, Host from, short sourceProto, int channelId) {
         logger.info("Received JoinReply from {}",from);
+
+        //Generate a operationID
+        //Propose to the multipaxos leader
+        //when I recieve the reply from multipaxos, send a message to the requesting process
+        // sendRequest(new ProposeRequest(nextInstance++, request.getOpId(), request.getOperation()), IncorrectAgreement.PROTOCOL_ID);
+
+
+
         List<Host> currentMembership = new LinkedList<>(membership);
         List<Integer> stateSnapshot = new LinkedList<>();
 
@@ -250,13 +269,15 @@ public class StateMachine extends GenericProtocol {
         sendMessage(msg, request.getRequester());
 
         logger.info("Sent JoinReply to {}",request.getRequester());
-        //Propose to the multipaxos
+
     }
 
 
-
-
     private void uponJoinReply(JoinReplyMsg reply, Host from,short sourceProto, int channelId) {
+        // full state
+        // instance
+        // Leader
+        // membership
         logger.info("Received JoinReply from {} with membership: {}", from, reply.getCurrentMembership());
         this.state = State.ACTIVE;
         this.membership = new LinkedList<>(reply.getCurrentMembership());
