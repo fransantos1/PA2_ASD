@@ -1,6 +1,7 @@
 package protocols.agreement;
 
 import protocols.agreement.messages.BroadcastMessage;
+import protocols.agreement.messages.prepareMessage;
 import protocols.agreement.notifications.JoinedNotification;
 import protocols.agreement.requests.AddReplicaRequest;
 import protocols.agreement.requests.RemoveReplicaRequest;
@@ -34,16 +35,21 @@ public class IncorrectAgreement extends GenericProtocol {
     public final static String PROTOCOL_NAME = "MultiPaxos";
 
 
-    private Host leader;
+    private Host currentLeader;
+    private int currentBallot;
+
 
     private Host myself;
     private int joinedInstance;
     private List<Host> membership;
 
+
     public IncorrectAgreement(Properties props) throws IOException, HandlerRegistrationException {
         super(PROTOCOL_NAME, PROTOCOL_ID);
         joinedInstance = -1; //-1 means we have not yet joined the system
         membership = null;
+
+        currentLeader = null;
 
         /*--------------------- Register Timer Handlers ----------------------------- */
 
@@ -66,12 +72,17 @@ public class IncorrectAgreement extends GenericProtocol {
     private void uponChannelCreated(ChannelReadyNotification notification, short sourceProto) {
         int cId = notification.getChannelId();
         myself = notification.getMyself();
+
         logger.info("Channel {} created, I am {}", cId, myself);
+
         // Allows this protocol to receive events from this channel.
         registerSharedChannel(cId);
+
         /*---------------------- Register Message Serializers ---------------------- */
         registerMessageSerializer(cId, BroadcastMessage.MSG_ID, BroadcastMessage.serializer);
+
         /*---------------------- Register Message Handlers -------------------------- */
+
         try {
               registerMessageHandler(cId, BroadcastMessage.MSG_ID, this::uponBroadcastMessage, this::uponMsgFail);
         } catch (HandlerRegistrationException e) {
@@ -82,6 +93,7 @@ public class IncorrectAgreement extends GenericProtocol {
 
     private void uponBroadcastMessage(BroadcastMessage msg, Host host, short sourceProto, int channelId) {
         if(joinedInstance >= 0 ){
+            
             //Obviously your agreement protocols will not decide things as soon as you receive the first message
             triggerNotification(new DecidedNotification(msg.getInstance(), msg.getOpId(), msg.getOp()));
         } else {
@@ -94,28 +106,76 @@ public class IncorrectAgreement extends GenericProtocol {
         //We joined the system and can now start doing things
         joinedInstance = notification.getJoinInstance();
         membership = new LinkedList<>(notification.getMembership());
+
+
+
         logger.info("Agreement starting at instance {},  membership: {}", joinedInstance, membership);
+
+
     }
 
     private void uponProposeRequest(ProposeRequest request, short sourceProto) {
         logger.debug("Received " + request);
-        if(myself.equals(leader)){
-
-
-
+        if(myself.equals(currentLeader)){
             return;
         }
+
         BroadcastMessage msg = new BroadcastMessage(request.getInstance(), request.getOpId(), request.getOperation());
-        logger.debug("Sending to: " + leader.getAddress());
-        sendMessage(msg, leader);
+        logger.debug("Sending to: " + currentLeader.getAddress());
+        sendMessage(msg, currentLeader);
+
 
         //membership.forEach(h -> sendMessage(msg, h));
 
 
 
-
-
     }
+    /*---------------------- Membership Managment -------------------------- */
+    //add replica, ask for propuse
+
+
+    //remove replica, ask to propuse but it needs to be processed right away
+
+    //if the replica being removed is the leader
+    //send a prepare
+
+
+    /*---------------------- Propose value -------------------------- */
+
+    // propose on a instace
+
+    //send propose_ok
+    //in here I need to verify if the ballot is correct
+    //and if itsnt notify the node trying to propuse
+
+    //notify state machine of decided
+
+    /*---------------------- Change leader -------------------------- */
+
+    //
+
+
+    private void sendPrepare(prepareMessage msg, Host host, short sourceProto, int channelId) {
+        if(msg.getBallot() > currentBallot){
+
+            //change the leader
+            return;
+        }
+        //send message to the mf trying to be leader and tell him to go take a hike
+    }
+
+
+    private void uponPrepare(prepareMessage msg, Host host, short sourceProto, int channelId) {
+        if(msg.getBallot() > currentBallot){
+            //change the leader
+            return;
+        }
+        //send message to the mf trying to be leader and tell him to go take a hike
+    }
+
+
+
+
     private void uponAddReplica(AddReplicaRequest request, short sourceProto) {
         logger.debug("Received " + request);
 

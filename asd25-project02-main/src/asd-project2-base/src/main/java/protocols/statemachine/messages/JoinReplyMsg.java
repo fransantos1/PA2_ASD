@@ -13,7 +13,7 @@ import java.util.Queue;
 
 public class JoinReplyMsg extends ProtoMessage {
 
-    public static final short MSG_ID = 302;
+    public static final short MSG_ID = 401;
     private final List<Host> currentMembership;
     private final Queue<Integer> stateSnapshot;
 

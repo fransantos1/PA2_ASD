@@ -26,15 +26,7 @@ import java.sql.Timestamp;
 import java.util.*;
 
 /**
- * This is NOT fully functional StateMachine implementation.
- * This is simply an example of things you can do, and can be used as a starting point.
  *
- * You are free to change/delete anything in this class, including its fields.
- * The only thing that you cannot change are the notifications/requests between the StateMachine and the APPLICATION
- * You can change the requests/notification between the StateMachine and AGREEMENT protocol, however make sure it is
- * coherent with the specification shown in the project description.
- *
- * Do not assume that any logic implemented here is correct, think for yourself!
  */
 public class ABD extends GenericProtocol {
     private static final Logger logger = LogManager.getLogger(ABD.class);
@@ -291,7 +283,7 @@ public class ABD extends GenericProtocol {
                 answers.clear();
                 if (pendingOperations.isEmpty())
                     // writeOK
-                    return;
+                    sendReply(new );
                 else
                     // ReadOk;
                     return;

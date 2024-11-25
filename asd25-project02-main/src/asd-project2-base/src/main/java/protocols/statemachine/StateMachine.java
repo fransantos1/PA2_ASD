@@ -27,7 +27,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 
-
 /**
  * This is NOT fully functional StateMachine implementation.
  * This is simply an example of things you can do, and can be used as a starting point.
@@ -69,6 +68,9 @@ public class StateMachine extends GenericProtocol {
 
 
     private HashMap<Long, Long> stateMap;
+
+    private HashMap<UUID, Long> awaitingRequests;
+
     private Dictionary<Short,OrderRequest> bufferedReq;
     List<Host> initialMembership;
 
@@ -122,8 +124,8 @@ public class StateMachine extends GenericProtocol {
     public void init(Properties props) {
         //Inform the state machine protocol about the channel we created in the constructor
         triggerNotification(new ChannelReadyNotification(channelId, self));
-
         String host = props.getProperty("initial_membership");
+
         String[] hosts = host.split(",");
         initialMembership = new LinkedList<>();
         for (String s : hosts) {
@@ -141,16 +143,16 @@ public class StateMachine extends GenericProtocol {
         if (initialMembership.contains(self)) {
             state = State.ACTIVE;
             logger.info("Starting in ACTIVE as I am part of initial membership");
-            //I'm part of the initial membership, so I'm assuming the system is bootstrapping
+            //I'm part of the initial membership, so I'm assuming the system is bootstrapping (initiating)
             membership = new LinkedList<>(initialMembership);
             membership.forEach(this::openConnection);
+
             triggerNotification(new JoinedNotification(membership, 0));
             processBufferedRequests();
         } else {
             state = State.JOINING;
             logger.info("Starting in JOINING as I am not part of initial membership");
             //You have to do something to join the system and know which instance you joined
-
             // Start timer trigger to requestToJoin
             setupPeriodicTimer(new JoiningTimer(), 1000, 5000);
             // (and copy the state of that instance)
@@ -204,9 +206,7 @@ public class StateMachine extends GenericProtocol {
         triggerNotification(new ExecuteNotification(notification.getOpId(), notification.getOperation()));
 
     }
-
-    /*---------------------------------Sending Messages ---------------------------------------- */
-    /* ---- Timer Events ---- */
+    /*---------------------------------Joining ---------------------------------------- */
 
     int requestToJoinIndex = 0;
     private void requestToJoin(JoiningTimer timer, long timerId) {
@@ -216,6 +216,39 @@ public class StateMachine extends GenericProtocol {
         openConnection(host);
         //sendMessage(new JoinRequest(self), host);
         requestToJoinIndex++;
+    }
+    private void uponRequestToJoin(JoinRequest request, Host from, short sourceProto, int channelId) {
+        logger.info("Received JoinReply from {}",from);
+    //UUID opUUID = UUID.randomUUID();
+        //Generate a operationID
+        //Propose to the multipaxos leader
+        //when I recieve the reply from multipaxos, send a message to the requesting process
+        // sendRequest(new ProposeRequest(nextInstance++, request.getOpId(), request.getOperation()), IncorrectAgreement.PROTOCOL_ID);
+
+
+
+        List<Host> currentMembership = new LinkedList<>(membership);
+        List<Integer> stateSnapshot = new LinkedList<>();
+
+        JoinReplyMsg msg = new JoinReplyMsg(currentMembership, stateSnapshot);
+        sendMessage(msg, request.getRequester());
+
+        logger.info("Sent JoinReply to {}",request.getRequester());
+
+    }
+    private void uponJoinReply(JoinReplyMsg reply, Host from,short sourceProto, int channelId) {
+        // full state
+        // instance
+        // Leader
+        // membership
+        logger.info("Received JoinReply from {} with membership: {}", from, reply.getCurrentMembership());
+        this.state = State.ACTIVE;
+        this.membership = new LinkedList<>(reply.getCurrentMembership());
+        this.nextInstance = reply.getStateSnapshot().get(0);
+
+        membership.forEach(this::openConnection);
+        triggerNotification(new JoinedNotification(membership, 0));
+        processBufferedRequests();
     }
 
     private void heartBeat(JoiningTimer timer, long timerId) {
@@ -252,41 +285,10 @@ public class StateMachine extends GenericProtocol {
 
 
     /*---------------------------------Receiving Messages ---------------------------------------- */
-    private void uponRequestToJoin(JoinRequest request, Host from, short sourceProto, int channelId) {
-        logger.info("Received JoinReply from {}",from);
-
-        //Generate a operationID
-        //Propose to the multipaxos leader
-        //when I recieve the reply from multipaxos, send a message to the requesting process
-        // sendRequest(new ProposeRequest(nextInstance++, request.getOpId(), request.getOperation()), IncorrectAgreement.PROTOCOL_ID);
 
 
 
-        List<Host> currentMembership = new LinkedList<>(membership);
-        List<Integer> stateSnapshot = new LinkedList<>();
 
-        JoinReplyMsg msg = new JoinReplyMsg(currentMembership, stateSnapshot);
-        sendMessage(msg, request.getRequester());
-
-        logger.info("Sent JoinReply to {}",request.getRequester());
-
-    }
-
-
-    private void uponJoinReply(JoinReplyMsg reply, Host from,short sourceProto, int channelId) {
-        // full state
-        // instance
-        // Leader
-        // membership
-        logger.info("Received JoinReply from {} with membership: {}", from, reply.getCurrentMembership());
-        this.state = State.ACTIVE;
-        this.membership = new LinkedList<>(reply.getCurrentMembership());
-        this.nextInstance = reply.getStateSnapshot().get(0);
-
-        membership.forEach(this::openConnection);
-        triggerNotification(new JoinedNotification(membership, 0));
-        processBufferedRequests();
-    }
 
 
 
