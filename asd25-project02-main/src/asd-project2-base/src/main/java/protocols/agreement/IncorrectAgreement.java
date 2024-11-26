@@ -42,7 +42,8 @@ public class IncorrectAgreement extends GenericProtocol {
     private Host myself;
     private int joinedInstance;
     private List<Host> membership;
-
+    private List<Integer> decidedInstances;
+    private int currentInstance;
 
     public IncorrectAgreement(Properties props) throws IOException, HandlerRegistrationException {
         super(PROTOCOL_NAME, PROTOCOL_ID);
@@ -91,12 +92,38 @@ public class IncorrectAgreement extends GenericProtocol {
 
     }
 
+    // Ballot should be something directly associated with the node on the membership, if this node is node n on the membership, his next propose the Ballot number should be something like current Ballot + n so everyone has a diferent one
+    //leader election
+    // prepare( instance , Ballot number)
+    // prepare_ok(instance, ballot number)
+    // and this is becomes the leader?
+
+
+    // propose values
+
+    // the leader sends accept(instance, ballot, opID)
+    // each replica verifies, if the instance, and ballot number are correct and send an accept_ok( instance, ballot, opid)
+
+    // when a replica recieves the same accept_ok from a majority of replicas, they send a decided to the app
+
+
+
+
     private void uponBroadcastMessage(BroadcastMessage msg, Host host, short sourceProto, int channelId) {
         if(joinedInstance >= 0 ){
-            
+            //
+            // add to a list
             //Obviously your agreement protocols will not decide things as soon as you receive the first message
+
+            //
+
+
+
+
             triggerNotification(new DecidedNotification(msg.getInstance(), msg.getOpId(), msg.getOp()));
         } else {
+            //
+
             //We have not yet received a JoinedNotification, but we are already receiving messages from the other
             //agreement instances, maybe we should do something with them...?
         }
@@ -119,6 +146,8 @@ public class IncorrectAgreement extends GenericProtocol {
         if(myself.equals(currentLeader)){
             return;
         }
+
+
 
         BroadcastMessage msg = new BroadcastMessage(request.getInstance(), request.getOpId(), request.getOperation());
         logger.debug("Sending to: " + currentLeader.getAddress());
@@ -184,7 +213,7 @@ public class IncorrectAgreement extends GenericProtocol {
 
         membership.add(request.getReplica());
     }
-    private void uponRemoveReplica(RemoveReplicaRequest request, short sourceProto) {
+    private void uponAddReplica(RemoveReplicaRequest request, short sourceProto) {
         logger.debug("Received " + request);
 
         //The RemoveReplicaRequest contains an "instance" field, which we ignore in this incorrect protocol.

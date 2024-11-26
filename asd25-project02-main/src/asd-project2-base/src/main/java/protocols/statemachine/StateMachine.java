@@ -1,6 +1,9 @@
 package protocols.statemachine;
 
 import protocols.agreement.notifications.JoinedNotification;
+import protocols.app.messages.RequestMessage;
+import protocols.app.utils.Operation;
+import protocols.statemachine.messages.JoinMessage;
 import protocols.statemachine.messages.JoinReplyMsg;
 import protocols.statemachine.requests.JoinRequest;
 import protocols.statemachine.timer.JoiningTimer;
@@ -23,8 +26,6 @@ import protocols.statemachine.requests.OrderRequest;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.*;
 
 /**
@@ -60,6 +61,10 @@ public class StateMachine extends GenericProtocol {
     private int nextInstance;
 
 
+    //OPType 3 = add replica
+    //OPType 4 = remove replica
+
+
     // to mantain the membership
     //max timeout 10s
     private HashMap<Host, Long> lastCommunication;
@@ -69,9 +74,11 @@ public class StateMachine extends GenericProtocol {
 
     private HashMap<Long, Long> stateMap;
 
-    private HashMap<UUID, Long> awaitingRequests;
+    private HashMap<UUID, OrderRequest> awaitingRequests;
+    private HashMap<Integer, DecidedNotification> decidedRequests; // Integer is the instance
 
     private Dictionary<Short,OrderRequest> bufferedReq;
+
     List<Host> initialMembership;
 
     public StateMachine(Properties props) throws IOException, HandlerRegistrationException, InvalidParameterException {
@@ -110,14 +117,12 @@ public class StateMachine extends GenericProtocol {
         subscribeNotification(DecidedNotification.NOTIFICATION_ID, this::uponDecidedNotification);
 
         /*--------------------- Register Message Handlers ----------------------------- */
-       //registerMessageHandler(channelId, JoinReplyMsg.MSG_ID, JoinReplyMsg.serializer);
 
+        registerMessageSerializer(channelId, JoinMessage.MSG_ID, JoinMessage.serializer);
+        registerMessageHandler(channelId, JoinMessage.MSG_ID, this::uponJoinMessage, this::uponMsgFail);
 
+        //registerMessageHandler(channelId, JoinReplyMsg.MSG_ID, JoinReplyMsg.serializer);
         /*--------------------- Register Timer Handlers ----------------------------- */
-
-        registerTimerHandler(JoiningTimer.TIMER_ID, this::requestToJoin);
-        registerTimerHandler(JoiningTimer.TIMER_ID, this::requestToJoin);
-
     }
 
     @Override
@@ -154,7 +159,7 @@ public class StateMachine extends GenericProtocol {
             logger.info("Starting in JOINING as I am not part of initial membership");
             //You have to do something to join the system and know which instance you joined
             // Start timer trigger to requestToJoin
-            setupPeriodicTimer(new JoiningTimer(), 1000, 5000);
+            requestToJoin();
             // (and copy the state of that instance)
         }
 
@@ -177,31 +182,115 @@ public class StateMachine extends GenericProtocol {
 
 
     /*--------------------------------- Requests ---------------------------------------- */
+
     private void uponOrderRequest(OrderRequest request, short sourceProto) {
         logger.debug("Received request: " + request);
         if (state == State.JOINING) {
             bufferedReq.put(request.getId(), request);
         } else if (state == State.ACTIVE) {
 
+            //add to a list of awaiting requests
+            //if I'm the leader simply propose it to paxos
+            //if i'm not the leader send the propose to the leader
+
+
+
+
+
+            awaitingRequests.put(request.getOpId(), request);
+            if(!leader.equals(self)){
+                //send order Request to the leader
+                return;
+            }
+
+
+
+
+
             //Also do something starter, we don't want an infinite number of instances active
         	//Maybe you should modify what is it that you are proposing so that you remember that this
         	//operation was issued by the application (and not an internal operation, check the uponDecidedNotification)
-
+            //send propose
             sendRequest(new ProposeRequest(nextInstance++, request.getOpId(), request.getOperation()),
                         IncorrectAgreement.PROTOCOL_ID);
         }
     }
 
+
     /*--------------------------------- Notifications ---------------------------------------- */
     private void uponDecidedNotification(DecidedNotification notification, short sourceProto) {
         logger.debug("Received notification: " + notification);
+        //add the decided to the decided list
+
+        // if its the correct instance (meaning the next instance)
+            //remove from decided list and loop to all the instances in order
+
+            //if I am the one who porposed this and if its not a app request
+                //if its true than do what is necesseray (example: let a node join)
+
+            //if not true send the update to the app and add it to the kv
+
+        //it its not the correct instance handle it
+        //have a timout for the correct instance, and if it doesnt show up then rejoin, ask for the correct instace, state transfer?
+
+
+        if(awaitingRequests.containsKey(notification.getOpId())) { // if this replica made the request
+            awaitingRequests.remove(notification.getOpId());
+            //send next
+
+
+        }
+
+        if(notification.getInstance() == nextInstance++){ // not sure if its the next instance that we want to use
+            // add to the state KV
+            //check if its an internal operation
+                //if yes execute
+                //if no send to the app
+            nextInstance++;
+        }
+
+
+
+
+
+
+
+
+
+
+        decidedRequests.put(notification.getInstance(), notification);
+
+
+        /*
+        Operation op = null;
+        try {
+            op = Operation.fromByteArray(notification.getOperation());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        if(op.getOpType() != RequestMessage.WRITE && op.getOpType() != RequestMessage.READ) {
+            if(awaitingRequests.containsKey(notification.getOpId())) {
+                awaitingRequests.remove(notification.getOpId());
+                //JoinReplyMsg reply = new JoinReplyMsg();
+
+            }
+
+
+
+
+            //NOT A APP OP
+        }
+        */
+
+
+
         //Maybe we should make sure operations are executed in order?
         // what
 
 
-        //You should be careful and check if this operation if an application operation (and send it up)
+        //You should be careful and check if this is an app operation
+        //or if this is an operations that was executed by the state machine itself (in which case you should execute add/remove replica ex.)
 
-        //or if this is an operations that was executed by the state machine itself (in which case you should execute)
         //DLT.add(new OperationClass(notification.getOpId(), notification.getOperation()));
         triggerNotification(new ExecuteNotification(notification.getOpId(), notification.getOperation()));
 
@@ -209,31 +298,38 @@ public class StateMachine extends GenericProtocol {
     /*---------------------------------Joining ---------------------------------------- */
 
     int requestToJoinIndex = 0;
-    private void requestToJoin(JoiningTimer timer, long timerId) {
+    private void requestToJoin() {
         if(requestToJoinIndex >= membership.size()) {requestToJoinIndex = 0;}
         Host host = initialMembership.get(requestToJoinIndex);
-
         openConnection(host);
-        //sendMessage(new JoinRequest(self), host);
+        sendMessage(new JoinMessage(self), host);
         requestToJoinIndex++;
     }
-    private void uponRequestToJoin(JoinRequest request, Host from, short sourceProto, int channelId) {
-        logger.info("Received JoinReply from {}",from);
-    //UUID opUUID = UUID.randomUUID();
+
+
+    private void uponJoinMessage(JoinMessage request, Host from, short sourceProto, int channelId) {
+        logger.info("Received JoinMessage from {}",from);
         //Generate a operationID
+        UUID opUUID = UUID.randomUUID();
+
+
+
+        // add to the queue
+        //OPType 3 = add replica
+        //OPType 4 = remove replica
+
         //Propose to the multipaxos leader
         //when I recieve the reply from multipaxos, send a message to the requesting process
-        // sendRequest(new ProposeRequest(nextInstance++, request.getOpId(), request.getOperation()), IncorrectAgreement.PROTOCOL_ID);
-
-
-
+            //uponOrderRequest();
+        /*
         List<Host> currentMembership = new LinkedList<>(membership);
         List<Integer> stateSnapshot = new LinkedList<>();
-
         JoinReplyMsg msg = new JoinReplyMsg(currentMembership, stateSnapshot);
-        sendMessage(msg, request.getRequester());
+        */
 
-        logger.info("Sent JoinReply to {}",request.getRequester());
+
+        //sendMessage(msg, request.getRequester());
+        //logger.info("Sent JoinReply to {}",request.getRequester());
 
     }
     private void uponJoinReply(JoinReplyMsg reply, Host from,short sourceProto, int channelId) {
@@ -250,6 +346,7 @@ public class StateMachine extends GenericProtocol {
         triggerNotification(new JoinedNotification(membership, 0));
         processBufferedRequests();
     }
+
 
     private void heartBeat(JoiningTimer timer, long timerId) {
 

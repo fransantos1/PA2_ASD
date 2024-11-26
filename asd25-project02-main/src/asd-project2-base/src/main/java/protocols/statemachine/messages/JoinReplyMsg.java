@@ -15,7 +15,7 @@ public class JoinReplyMsg extends ProtoMessage {
 
     public static final short MSG_ID = 401;
     private final List<Host> currentMembership;
-    private final Queue<Integer> stateSnapshot;
+    private final List<Integer> stateSnapshot;
 
     public JoinReplyMsg(List<Host> currentMembership, List<Integer> stateSnapshot) {
         super(MSG_ID);
