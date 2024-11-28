@@ -13,11 +13,13 @@ public class prepareMessage extends ProtoMessage {
     public final static short MSG_ID = 103;
     private final Host host;
     private final int ballot;
+    private final int instance;
 
-    public prepareMessage(Host host, int ballot) {
+    public prepareMessage(Host host, int ballot, int instance) {
         super(MSG_ID);
         this.host = host;
         this.ballot = ballot;
+        this.instance = instance;
     }
 
     public Host getHost() {
@@ -27,18 +29,24 @@ public class prepareMessage extends ProtoMessage {
         return ballot;
     }
 
+    public int getInstance() {
+        return instance;
+    }
+
     public static ISerializer<prepareMessage> serializer = new ISerializer<prepareMessage>() {
         @Override
         public void serialize(prepareMessage msg, ByteBuf out) throws IOException {
             Host.serializer.serialize(msg.host, out);
             out.writeInt(msg.ballot);
+            out.writeInt(msg.instance);
         }
 
         @Override
         public prepareMessage deserialize(ByteBuf in) throws IOException {
             Host host = Host.serializer.deserialize(in);
             int ballot = in.readInt();
-            return new prepareMessage(host, ballot);
+            int instance = in.readInt();
+            return new prepareMessage(host, ballot, instance);
         }
     };
 

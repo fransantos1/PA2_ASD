@@ -15,15 +15,22 @@ public class BroadcastMessage extends ProtoMessage {
 
     public final static short MSG_ID = 101;
 
+    public final static int PREPARE = 0;
+    public final static int ACCEPT = 1;
+    public final static int ACCEPT_OK = 2;
+
     private final UUID opId;
     private final int instance;
     private final byte[] op;
+    private final int type;
 
-    public BroadcastMessage(int instance, UUID opId, byte[] op) {
+
+    public BroadcastMessage(int instance, UUID opId, byte[] op, int type) {
         super(MSG_ID);
         this.instance = instance;
         this.op = op;
         this.opId = opId;
+        this.type = type;
     }
 
     public int getInstance() {
@@ -36,6 +43,10 @@ public class BroadcastMessage extends ProtoMessage {
 
     public byte[] getOp() {
         return op;
+    }
+
+    public int getType() {
+        return type;
     }
 
     @Override
@@ -55,6 +66,7 @@ public class BroadcastMessage extends ProtoMessage {
             out.writeLong(msg.opId.getLeastSignificantBits());
             out.writeInt(msg.op.length);
             out.writeBytes(msg.op);
+            out.writeInt(msg.type);
         }
 
         @Override
@@ -65,7 +77,8 @@ public class BroadcastMessage extends ProtoMessage {
             UUID opId = new UUID(highBytes, lowBytes);
             byte[] op = new byte[in.readInt()];
             in.readBytes(op);
-            return new BroadcastMessage(instance, opId, op);
+            int type = in.readInt();
+            return new BroadcastMessage(instance, opId, op, type);
         }
     };
 

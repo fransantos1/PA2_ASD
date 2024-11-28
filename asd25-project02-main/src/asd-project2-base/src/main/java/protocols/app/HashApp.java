@@ -1,5 +1,6 @@
 package protocols.app;
 
+import protocols.abd.notifications.ReadCompleteNotification;
 import pt.unl.fct.di.novasys.babel.core.GenericProtocol;
 import pt.unl.fct.di.novasys.babel.exceptions.HandlerRegistrationException;
 import pt.unl.fct.di.novasys.babel.generic.ProtoMessage;
@@ -13,9 +14,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import protocols.abd.ABD;
-import protocols.abd.renotifications.ReadCompleteNotification;
-import protocols.abd.renotifications.UpdateValueNotification;
-import protocols.abd.renotifications.WriteCompleteNotification;
+import protocols.abd.notifications.ReadCompleteNotification;
+import protocols.abd.notifications.UpdateValueNotification;
+import protocols.abd.notifications.WriteCompleteNotification;
 import protocols.abd.requests.ReadRequest;
 import protocols.abd.requests.WriteRequest;
 import protocols.app.messages.RequestMessage;
@@ -156,11 +157,11 @@ public class HashApp extends GenericProtocol {
 			//ABD interaction
 			if(msg.getOpType() == RequestMessage.READ) {
 
-				//sendRequest(new ReadRequest(opUUID, msg.getKey().getBytes()), ABD.PROTOCOL_ID);
+				sendRequest(new ReadRequest(opUUID, byteArrayToShort(msg.getKey().getBytes())), ABD.PROTOCOL_ID);
 
 			} else if (msg.getOpType() == RequestMessage.WRITE) {
 
-				//sendRequest(new WriteRequest(opUUID, msg.getKey().getBytes(), msg.getData()), ABD.PROTOCOL_ID);
+				sendRequest(new WriteRequest(opUUID, byteArrayToShort(msg.getKey().getBytes()), byteArrayToShort(msg.getData())), ABD.PROTOCOL_ID);
 
 			} else {
 				System.err.println("Invalid client operation");
@@ -207,8 +208,8 @@ public class HashApp extends GenericProtocol {
 
 	}
 
-	//The following 3 handlers are are executed only for the abd stack
-	/*private void uponReadCompleteNotification(ReadCompleteNotification not, short sourceProto) {
+	//The following 3 handlers are executed only for the abd stack
+	private void uponReadCompleteNotification(ReadCompleteNotification not, short sourceProto) {
 		String key = new String(not.getKey(),0,not.getKey().length);
 		this.data.put(key, not.getValue());
 		
@@ -235,7 +236,7 @@ public class HashApp extends GenericProtocol {
 		data.put(new String(not.getKey(),0,not.getKey().length), not.getValue());
 
 		this.updateOperationCountAndPrintHash();
-	}*/
+	}
 
 
 	private void updateOperationCountAndPrintHash() {
@@ -335,6 +336,13 @@ public class HashApp extends GenericProtocol {
 			dis.read(value);
 			data.put(key, value);
 		}
+	}
+
+	private short byteArrayToShort(byte[] data){
+		short value = (short) (data[1] & 0xff);
+		value <<= 8;
+		value |= (short) (data[0] & 0xff);
+		return value;
 	}
 
 }

@@ -4,10 +4,15 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.Message;
 import protocols.abd.messages.*;
+import protocols.abd.notifications.ReadCompleteNotification;
+import protocols.abd.requests.ReadRequest;
+import protocols.abd.requests.WriteRequest;
 import protocols.agreement.IncorrectAgreement;
 import protocols.agreement.notifications.DecidedNotification;
 import protocols.agreement.notifications.JoinedNotification;
 import protocols.agreement.requests.ProposeRequest;
+import protocols.app.requests.CurrentStateRequest;
+import protocols.app.requests.InstallStateRequest;
 import protocols.app.utils.Operation;
 import protocols.statemachine.notifications.ChannelReadyNotification;
 import protocols.statemachine.notifications.ExecuteNotification;
@@ -15,6 +20,7 @@ import protocols.statemachine.requests.OrderRequest;
 import pt.unl.fct.di.novasys.babel.core.GenericProtocol;
 import pt.unl.fct.di.novasys.babel.exceptions.HandlerRegistrationException;
 import pt.unl.fct.di.novasys.babel.generic.ProtoMessage;
+import pt.unl.fct.di.novasys.babel.generic.ProtoRequest;
 import pt.unl.fct.di.novasys.channel.tcp.TCPChannel;
 import pt.unl.fct.di.novasys.channel.tcp.events.*;
 import pt.unl.fct.di.novasys.network.data.Host;
@@ -49,6 +55,10 @@ public class ABD extends GenericProtocol {
     private Map<Long, Long> tag;
     private Map<Long, Long> val;
 
+    private List<ProtoRequest> bufferOps;
+
+    private final short APP_ID = 300;
+
     // TODO: Mudar para timestamp
     private long opSeq;
 
@@ -78,16 +88,45 @@ public class ABD extends GenericProtocol {
         registerChannelEventHandler(channelId, InConnectionDown.EVENT_ID, this::uponInConnectionDown);
 
         /*--------------------- Register Request Handlers ----------------------------- */
-        registerRequestHandler(OrderRequest.REQUEST_ID, this::uponOrderRequest);
+        registerRequestHandler(ReadRequest.REQUEST_ID, this::uponReadRequest);
+        registerRequestHandler(WriteRequest.REQUEST_ID, this::uponWriteRequest);
 
         /*--------------------- Register Notification Handlers ------------------------ */
-        subscribeNotification(DecidedNotification.NOTIFICATION_ID, this::uponDecidedNotification);
+        //subscribeNotification(DecidedNotification.NOTIFICATION_ID, this::uponDecidedNotification);
 
+        /*---------------------- Register Message Serializers ---------------------- */
+        registerMessageSerializer(channelId, ReadTagMsg.MSG_ID, ReadTagMsg.serializer);
+        registerMessageHandler(channelId, ReadTagMsg.MSG_ID, this::uponReceiveBroadcastWrite, this::uponMsgFail);
+
+        registerMessageSerializer(channelId, ReadTagRepMsg.MSG_ID, ReadTagRepMsg.serializer);
+        registerMessageHandler(channelId, ReadTagRepMsg.MSG_ID, this::uponReceive, this::uponMsgFail);
+
+        registerMessageSerializer(channelId, WriteTagMsg.MSG_ID, WriteTagMsg.serializer);
+        registerMessageHandler(channelId, WriteTagMsg.MSG_ID, this::uponBebBcastDeliver, this::uponMsgFail);
+
+        registerMessageSerializer(channelId, AckMsg.MSG_ID, AckMsg.serializer);
+        registerMessageHandler(channelId, AckMsg.MSG_ID, this::uponAck, this::uponMsgFail);
+
+        registerMessageSerializer(channelId, ReadMsg.MSG_ID, ReadMsg.serializer);
+        registerMessageHandler(channelId, ReadMsg.MSG_ID, this::uponReceiveBroadcastRead, this::uponMsgFail);
+
+        registerMessageSerializer(channelId, ReadReplyMsg.MSG_ID, ReadReplyMsg.serializer);
+        registerMessageHandler(channelId, ReadReplyMsg.MSG_ID, this::uponReceiveReadReply, this::uponMsgFail);
+
+        registerMessageSerializer(channelId, JoinMsg.MSG_ID, JoinMsg.serializer);
+        registerMessageHandler(channelId, JoinMsg.MSG_ID, this::uponReceiveJoin, this::uponMsgFail);
+
+        registerMessageSerializer(channelId, JoinReplyMsg.MSG_ID, JoinReplyMsg.serializer);
+        registerMessageHandler(channelId, JoinReplyMsg.MSG_ID, this::uponReceiveJoinReply, this::uponMsgFail);
+
+        registerMessageSerializer(channelId, LeaveMsg.MSG_ID, LeaveMsg.serializer);
+        registerMessageHandler(channelId, LeaveMsg.MSG_ID, this::uponReceiveLeave, this::uponMsgFail);
 
         pendingOperations = new HashMap<>();
         answers = new LinkedList<>();
         tag = new HashMap<>();
         val = new HashMap<>();
+        bufferOps = new LinkedList<>();
         opSeq = 0;
     }
 
@@ -111,43 +150,45 @@ public class ABD extends GenericProtocol {
         }
 
         if (initialMembership.contains(self)) {
-            state = State.ACTIVE;
+            state = State.JOINING;
             logger.info("Starting in ACTIVE as I am part of initial membership");
-            //I'm part of the initial membership, so I'm assuming the system is bootstrapping
-            membership = new LinkedList<>(initialMembership);
-            membership.forEach(this::openConnection);
-            triggerNotification(new JoinedNotification(membership, 0));
+            //I'm part of the initial membership, so I'm assuming the first in the system
+            // Ask for the state from the Application
+            // TODO: Ver instance
+            sendRequest(new CurrentStateRequest(0), APP_ID);
         } else {
             state = State.JOINING;
             logger.info("Starting in JOINING as I am not part of initial membership");
+            joinSystem();
             //You have to do something to join the system and know which instance you joined
             // (and copy the state of that instance)
         }
-
     }
 
     /* --------------------------------- Requests ---------------------------------------- */
-    private void uponOrderRequest(OrderRequest request, short sourceProto) {
-        logger.debug("Received request: " + request);
+    private void uponReadRequest(ReadRequest request, short sourceProto) {
+        logger.debug("Received read request: " + request);
         if (state == State.JOINING) {
+            bufferOps.add(request);
             //Do something smart (like buffering the requests)
         } else if (state == State.ACTIVE) {
-            //Also do something starter, we don't want an infinite number of instances active
-        	//Maybe you should modify what is it that you are proposing so that you remember that this
-        	//operation was issued by the application (and not an internal operation, check the uponDecidedNotification)
-            sendRequest(new ProposeRequest(nextInstance++, request.getOpId(), request.getOperation()),
-                    IncorrectAgreement.PROTOCOL_ID);
+            // Definir para ver se é r
+            read(request.getKey());
+        }
+    }
+
+    private void uponWriteRequest(WriteRequest request, short sourceProto) {
+        logger.debug("Received write request: " + request);
+        if (state == State.JOINING) {
+            bufferOps.add(request);
+            //Do something smart (like buffering the requests)
+        } else if (state == State.ACTIVE) {
+            write(request.getKey(), request.getValue());
         }
     }
 
     /* --------------------------------- Notifications ---------------------------------------- */
-    private void uponDecidedNotification(DecidedNotification notification, short sourceProto) {
-        logger.debug("Received notification: " + notification);
-        //Maybe we should make sure operations are executed in order?
-        //You should be careful and check if this operation if an application operation (and send it up)
-        //or if this is an operations that was executed by the state machine itself (in which case you should execute)
-        triggerNotification(new ExecuteNotification(notification.getOpId(), notification.getOperation()));
-    }
+
 
     /* --------------------------------- Messages ---------------------------------------- */
     private void uponMsgFail(ProtoMessage msg, Host host, short destProto, Throwable throwable, int channelId) {
@@ -182,10 +223,9 @@ public class ABD extends GenericProtocol {
 
     /* --------------------------------- Functions ---------------------------- */
 
-    private void write(long key1, long key2, long v1, long v2) {
+    private void write(long key, long v) {
         //You should write the operation to the state machine
-        pendingOperations.put(key1, v1);
-        pendingOperations.put(key2, v2);
+        pendingOperations.put(key, v);
         opSeq++;
 
         // Trigger broadcast
@@ -193,7 +233,7 @@ public class ABD extends GenericProtocol {
             if (!h.equals(self)) {
                 // Send write request
                 //sendRequest(new WriteRequest(opSeq, operation), AGREEMENT_PROTOCOL_ID);
-                ProtoMessage msg = new ReadTagMsg(opSeq, key1, key2);
+                ProtoMessage msg = new ReadTagMsg(opSeq, key);
                 openConnection(h);
                 sendMessage(msg, h);
             }
@@ -203,15 +243,13 @@ public class ABD extends GenericProtocol {
     // Upon bebBcastDeliver ( (READ_Tag, id, k), p)
     private void uponReceiveBroadcastWrite(ProtoMessage msg, Host from, short sourceProto, int channelId){
 
-        Long key1 = ((ReadTagMsg) msg).getKey1();
-        Long key2 = ((ReadTagMsg) msg).getKey2();
+        Long key = ((ReadTagMsg) msg).getKey();
 
-        long tag1 = tag.getOrDefault(key1, opSeq);
-        long tag2 = tag.getOrDefault(key2, opSeq);
+        long tag1 = tag.getOrDefault(key, opSeq);
 
         long oSeq = ((ReadTagMsg) msg).getOpSeq();
 
-        ProtoMessage msgToSend = new ReadTagRepMsg(oSeq, tag1, tag2, key1, key2);
+        ProtoMessage msgToSend = new ReadTagRepMsg(oSeq, tag1, key);
 
         openConnection(from);
         sendMessage(msgToSend, from);
@@ -223,25 +261,21 @@ public class ABD extends GenericProtocol {
         if (opSeq == id){
             answers.add((ReadTagRepMsg) msg);
             if(answers.size() == membership.size() + 1){
-                long newTag1 = 0;
-                long newTag2 = 0;
+                long newTag = 0;
 
                 for (ProtoMessage msgAux : answers) {
-                    if (((ReadTagRepMsg ) msgAux).getTag1() > newTag1)
-                        newTag1 = ((ReadTagRepMsg ) msgAux).getTag1();
-                    if (((ReadTagRepMsg ) msgAux).getTag2() > newTag2)
-                        newTag2 = ((ReadTagRepMsg ) msgAux).getTag2();
+                    if (((ReadTagRepMsg ) msgAux).getTag() > newTag)
+                        newTag = ((ReadTagRepMsg ) msgAux).getTag();
                 }
 
                 opSeq++;
                 answers.clear();
 
-                long key1 = ((ReadTagRepMsg ) msg).getKey1();
-                long key2 = ((ReadTagRepMsg ) msg).getKey2();
+                long key = ((ReadTagRepMsg ) msg).getKey();
                 // Send write request
                 for (Host h : membership) {
                     if (!h.equals(self)) {
-                        WriteTagMsg msgToSend = new WriteTagMsg(opSeq, key1, key2, newTag1, newTag2, pendingOperations.get(key1), pendingOperations.get(key2));
+                        WriteTagMsg msgToSend = new WriteTagMsg(opSeq, key, newTag, pendingOperations.get(key));
                         openConnection(h);
                         sendMessage(msgToSend, h);
                     }
@@ -252,27 +286,23 @@ public class ABD extends GenericProtocol {
     }
 
     private void uponBebBcastDeliver(ProtoMessage msg, Host from, short sourceProto, int channelId){
-        long newTag1 = ((WriteTagMsg ) msg).getNewTag1();
-        long key1 = ((WriteTagMsg ) msg).getKey1();
-        if(newTag1 > tag.get(key1)){
-            tag.remove(key1);
-            tag.put(key1, newTag1);
-            val.remove(key1);
-            val.put(key1, ((WriteTagMsg ) msg).getNewValue1());
-        }
-        long newTag2 = ((WriteTagMsg ) msg).getNewTag2();
-        long key2 = ((WriteTagMsg ) msg).getKey2();
-        if(newTag2 > tag.get(key2)){
-            tag.remove(key2);
-            tag.put(key2, newTag2);
-            val.remove(key2);
-            val.put(key2, ((WriteTagMsg ) msg).getNewValue2());
+        long newTag = ((WriteTagMsg ) msg).getNewTag();
+        long key = ((WriteTagMsg ) msg).getKey();
+        if(newTag > tag.get(key)){
+            tag.remove(key);
+            tag.put(key, newTag);
+            val.remove(key);
+            val.put(key, ((WriteTagMsg ) msg).getNewValue());
         }
 
         long oSeq = ((WriteTagMsg ) msg).getOpSeq();
-        AckMsg ackMsg = new AckMsg(oSeq, key1, key2);
+        AckMsg ackMsg = new AckMsg(oSeq, key);
         openConnection(from);
         sendMessage(ackMsg, from);
+
+        //TODO: Send Notification to the APP
+        triggerNotification(new ExecuteNotification(new UUID(1, 1), new byte[]{1, 2, 3}));
+        sendRequest(new InstallStateRequest(new byte[]{1, 2, 3}), APP_ID);
     }
 
     private void uponAck(ProtoMessage msg, Host from, short sourceProto, int channelId){
@@ -281,24 +311,29 @@ public class ABD extends GenericProtocol {
             answers.add(msg);
             if(answers.size() == membership.size() + 1) {
                 answers.clear();
+                // TODO: Ver o q tem de ser returnado!!!
                 if (pendingOperations.isEmpty())
                     // writeOK
-                    sendReply(new );
-                else
-                    // ReadOk;
+                    //sendReply(new );
                     return;
+                else{
+                    long key = ((AckMsg ) msg).getKey();
+                    long value = val.get(key);
+                    triggerNotification(new ReadCompleteNotification(key, value));
+                }
+
             }
             // TODO: Ver dps se faz sentido dar clear ao pending!!
         }
 
     }
 
-    private void read(long key1, long key2){
+    private void read(long key){
         opSeq++;
         answers.clear();
         for (Host h : membership) {
             if (!h.equals(self)) {
-                ReadMsg msgToSend = new ReadMsg(opSeq, key1, key2);
+                ReadMsg msgToSend = new ReadMsg(opSeq, key);
                 openConnection(h);
                 sendMessage(msgToSend, h);
             }
@@ -307,18 +342,15 @@ public class ABD extends GenericProtocol {
 
     private void uponReceiveBroadcastRead(ProtoMessage msg, Host from, short sourceProto, int channelId){
 
-        Long key1 = ((ReadMsg) msg).getKey1();
-        Long key2 = ((ReadMsg) msg).getKey2();
+        Long key = ((ReadMsg) msg).getKey();
 
-        long tag1 = tag.getOrDefault(key1, opSeq);
-        long tag2 = tag.getOrDefault(key2, opSeq);
+        long tag1 = tag.getOrDefault(key, opSeq);
 
-        long val1 = val.get(key1);
-        long val2 = val.get(key2);
+        long val1 = val.get(key);
 
         long oSeq = ((ReadMsg) msg).getOpSeq();
 
-        ProtoMessage msgToSend = new ReadReplyMsg(oSeq, key1, key2, tag1, tag2, val1, val2);
+        ProtoMessage msgToSend = new ReadReplyMsg(oSeq, key, tag1, val1);
 
         openConnection(from);
         sendMessage(msgToSend, from);
@@ -329,32 +361,24 @@ public class ABD extends GenericProtocol {
         if(opSeq == id){
             answers.add(msg);
             if (answers.size() > membership.size() +1){
-                long newTag1 = 0;
-                long newTag2 = 0;
-                long val1 = Long.MIN_VALUE;
-                long val2 = Long.MIN_VALUE;
+                long newTag = 0;
+                long val1 = Long.MIN_VALUE; // = 0 ?
 
                 for (ProtoMessage msgAux : answers) {
                     // TODO: Maybe a Check related with the type of msg
 
-                    if (((ReadReplyMsg ) msgAux).getTag1() > newTag1){
-                        newTag1 = ((ReadReplyMsg ) msgAux).getTag1();
-                        val1 = ((ReadReplyMsg ) msgAux).getVal1();
-                    }
-                    if (((ReadReplyMsg ) msgAux).getTag2() > newTag2){
-                        newTag2 = ((ReadReplyMsg ) msgAux).getTag2();
-                        val2 = ((ReadReplyMsg ) msgAux).getVal2();
+                    if (((ReadReplyMsg ) msgAux).getTag() > newTag){
+                        newTag = ((ReadReplyMsg ) msgAux).getTag();
+                        val1 = ((ReadReplyMsg ) msgAux).getVal();
                     }
                 }
-                long key1 = ((ReadReplyMsg) msg).getKey1();
-                long key2 = ((ReadReplyMsg) msg).getKey2();
-                pendingOperations.put(key1, val1);
-                pendingOperations.put(key2, val2);
+                long key = ((ReadReplyMsg) msg).getKey();
+                pendingOperations.put(key, val1);
                 opSeq++;
                 answers.clear();
                 for (Host h : membership) {
                     if (!h.equals(self)) {
-                        WriteTagMsg msgToSend = new WriteTagMsg(opSeq, key1, key2, newTag1, newTag2, pendingOperations.get(key1), pendingOperations.get(key2));
+                        WriteTagMsg msgToSend = new WriteTagMsg(opSeq, key, newTag, pendingOperations.get(key));
                         openConnection(h);
                         sendMessage(msgToSend, h);
                     }
@@ -363,6 +387,53 @@ public class ABD extends GenericProtocol {
         }
     }
 
+    // Join the system and exit it
+    // and
+    // Add and remove a replica
 
+    private void joinSystem() {
+        for (Host h : membership) {
+            if (!h.equals(self)) {
+                // Send join request
+                ProtoMessage msg = new JoinMsg(self);
+                openConnection(h);
+                sendMessage(msg, h);
+            }
+        }
+    }
+
+    private void uponReceiveJoin(ProtoMessage msg, Host from, short sourceProto, int channelId) {
+        Host hostJoining = ((JoinMsg) msg).getHostJoining();
+        membership.add(hostJoining);
+        ProtoMessage msgToSend = new JoinReplyMsg(val, tag);
+        openConnection(hostJoining);
+        sendMessage(msg, hostJoining);
+    }
+
+    private void uponReceiveJoinReply(ProtoMessage msg, Host from, short sourceProto, int channelId) {
+        if(State.JOINING == state){
+            Map<Long, Long> val = ((JoinReplyMsg) msg).getVal();
+            Map<Long, Long> tag = ((JoinReplyMsg) msg).getTag();
+            this.val.putAll(val);
+            this.tag.putAll(tag);
+            state = State.ACTIVE;
+        }
+    }
+
+    private void leave(){
+        for (Host h : membership) {
+            if (!h.equals(self)) {
+                ProtoMessage msg = new LeaveMsg(self);
+                openConnection(h);
+                sendMessage(msg, h);
+            }
+        }
+        // EXIT
+    }
+
+    private void uponReceiveLeave(ProtoMessage msg, Host from, short sourceProto, int channelId) {
+        Host hostLeaving = ((LeaveMsg) msg).getLeaving();
+        membership.remove(hostLeaving);
+    }
 
 }

@@ -5,6 +5,7 @@ import protocols.agreement.messages.prepareMessage;
 import protocols.agreement.notifications.JoinedNotification;
 import protocols.agreement.requests.AddReplicaRequest;
 import protocols.agreement.requests.RemoveReplicaRequest;
+import protocols.app.utils.Operation;
 import pt.unl.fct.di.novasys.babel.core.GenericProtocol;
 import pt.unl.fct.di.novasys.babel.exceptions.HandlerRegistrationException;
 import pt.unl.fct.di.novasys.babel.generic.ProtoMessage;
@@ -19,12 +20,18 @@ import java.io.IOException;
 import java.util.*;
 
 /**
- * This is NOT a correct agreement protocol (it is actually a VERY wrong one)
- * This is simply an example of things you can do, and can be used as a starting point.
- *
- * You are free to change/delete ANYTHING in this class, including its fields.
- * Do not assume that any logic implemented here is correct, think for yourself!
+on the operation class:
+ optype after 1 is statemachine/paxos exclusive
+ optype = 2 is add replica
+ optype = 3  is remove replica
+ optype = 4 is changeLeader
+
+
+
  */
+
+
+
 
 public class IncorrectAgreement extends GenericProtocol {
 
@@ -41,8 +48,12 @@ public class IncorrectAgreement extends GenericProtocol {
 
     private Host myself;
     private int joinedInstance;
+
+    private HashMap<BroadcastMessage, Integer> incomingProposals ;
+    private ArrayList<BroadcastMessage> decidedProposals;
+
+
     private List<Host> membership;
-    private List<Integer> decidedInstances;
     private int currentInstance;
 
     public IncorrectAgreement(Properties props) throws IOException, HandlerRegistrationException {
@@ -56,6 +67,12 @@ public class IncorrectAgreement extends GenericProtocol {
 
         /*--------------------- Register Request Handlers ----------------------------- */
         registerRequestHandler(ProposeRequest.REQUEST_ID, this::uponProposeRequest);
+
+        /*--------------------- Register Message Handlers ----------------------------- */
+
+
+
+
         registerRequestHandler(AddReplicaRequest.REQUEST_ID, this::uponAddReplica);
         registerRequestHandler(RemoveReplicaRequest.REQUEST_ID, this::uponRemoveReplica);
 
@@ -74,6 +91,9 @@ public class IncorrectAgreement extends GenericProtocol {
         int cId = notification.getChannelId();
         myself = notification.getMyself();
 
+        decidedProposals = new ArrayList<>();
+        incomingProposals = new HashMap<>();
+
         logger.info("Channel {} created, I am {}", cId, myself);
 
         // Allows this protocol to receive events from this channel.
@@ -85,7 +105,12 @@ public class IncorrectAgreement extends GenericProtocol {
         /*---------------------- Register Message Handlers -------------------------- */
 
         try {
-              registerMessageHandler(cId, BroadcastMessage.MSG_ID, this::uponBroadcastMessage, this::uponMsgFail);
+            registerMessageHandler(cId, BroadcastMessage.MSG_ID, this::uponBroadcastMessage, this::uponMsgFail);
+
+
+            registerMessageSerializer(cId, prepareMessage.MSG_ID, prepareMessage.serializer);
+            registerMessageHandler(cId, prepareMessage.MSG_ID, this::uponPrepare, this::uponMsgFail);
+
         } catch (HandlerRegistrationException e) {
             throw new AssertionError("Error registering message handler.", e);
         }
@@ -109,21 +134,46 @@ public class IncorrectAgreement extends GenericProtocol {
 
 
 
+    //  filter if is a propose or a propose_Ok
     private void uponBroadcastMessage(BroadcastMessage msg, Host host, short sourceProto, int channelId) {
         if(joinedInstance >= 0 ){
-            //
-            // add to a list
-            //Obviously your agreement protocols will not decide things as soon as you receive the first message
+            switch (msg.getType()){
+                case BroadcastMessage.ACCEPT:
+                    if(msg.getInstance() < currentInstance && currentInstance < membership.size()){
+                        //send error message to Sender
+                    }
 
-            //
+                    // (instance, Ballot, operation)
+                     //
+                     //
+                     //
+
+                    break;
+                case BroadcastMessage.ACCEPT_OK:
+
+                    // (instance, Ballot, operation)
+                    if(decidedProposals.contains(msg))
+                        return;
+
+                    int n_ofTurns = incomingProposals.getOrDefault(msg, 0);
+                    n_ofTurns++;
+                    incomingProposals.put(msg, n_ofTurns);
+
+                    if(n_ofTurns < membership.size()/2 + 1)
+                        return;
+
+                    decidedProposals.add(msg);
+                    triggerNotification(new DecidedNotification(msg.getInstance(), msg.getOpId(), msg.getOp()));
+
+                    break;
+                case BroadcastMessage.PREPARE:
+                    // (instance, Ballot)
+
+                    break;
+            }
 
 
-
-
-            triggerNotification(new DecidedNotification(msg.getInstance(), msg.getOpId(), msg.getOp()));
         } else {
-            //
-
             //We have not yet received a JoinedNotification, but we are already receiving messages from the other
             //agreement instances, maybe we should do something with them...?
         }
@@ -143,18 +193,16 @@ public class IncorrectAgreement extends GenericProtocol {
 
     private void uponProposeRequest(ProposeRequest request, short sourceProto) {
         logger.debug("Received " + request);
+        if(request.getInstance() == -1) {
+            sendPrepare();
+        }
         if(myself.equals(currentLeader)){
             return;
         }
-
-
-
-        BroadcastMessage msg = new BroadcastMessage(request.getInstance(), request.getOpId(), request.getOperation());
+        BroadcastMessage msg = new BroadcastMessage(request.getInstance(), request.getOpId(), request.getOperation(), BroadcastMessage.ACCEPT);
         logger.debug("Sending to: " + currentLeader.getAddress());
-        sendMessage(msg, currentLeader);
+        membership.forEach(h -> sendMessage(msg, h));
 
-
-        //membership.forEach(h -> sendMessage(msg, h));
 
 
 
@@ -184,21 +232,28 @@ public class IncorrectAgreement extends GenericProtocol {
     //
 
 
-    private void sendPrepare(prepareMessage msg, Host host, short sourceProto, int channelId) {
-        if(msg.getBallot() > currentBallot){
-
-            //change the leader
-            return;
-        }
-        //send message to the mf trying to be leader and tell him to go take a hike
+    private void sendPrepare() {
+        int ballot = currentBallot + membership.indexOf(myself);
+        prepareMessage msg = new prepareMessage(myself,ballot, currentInstance++);
+        logger.info("Sending prepare message to {} for instance {} with ballot {}", myself , msg.getInstance(), msg.getBallot());
+        membership.forEach(h -> sendMessage(msg, h));
     }
 
 
     private void uponPrepare(prepareMessage msg, Host host, short sourceProto, int channelId) {
+        logger.info("Received prepare message from {} for instance {} with ballot {}", host, msg.getInstance(), msg.getBallot());
         if(msg.getBallot() > currentBallot){
             //change the leader
+            currentBallot = msg.getBallot();
+            currentLeader = host;
+
+
+            //send prepareOk
             return;
+        } else {
+
         }
+
         //send message to the mf trying to be leader and tell him to go take a hike
     }
 
@@ -213,7 +268,7 @@ public class IncorrectAgreement extends GenericProtocol {
 
         membership.add(request.getReplica());
     }
-    private void uponAddReplica(RemoveReplicaRequest request, short sourceProto) {
+    private void uponRemoveReplica(RemoveReplicaRequest request, short sourceProto) {
         logger.debug("Received " + request);
 
         //The RemoveReplicaRequest contains an "instance" field, which we ignore in this incorrect protocol.
