@@ -1,11 +1,11 @@
 package protocols.agreement;
 
-import protocols.agreement.messages.BroadcastMessage;
+import protocols.agreement.messages.broadcastMessage;
+import protocols.agreement.messages.responseMessage;
 import protocols.agreement.messages.prepareMessage;
 import protocols.agreement.notifications.JoinedNotification;
 import protocols.agreement.requests.AddReplicaRequest;
 import protocols.agreement.requests.RemoveReplicaRequest;
-import protocols.app.utils.Operation;
 import pt.unl.fct.di.novasys.babel.core.GenericProtocol;
 import pt.unl.fct.di.novasys.babel.exceptions.HandlerRegistrationException;
 import pt.unl.fct.di.novasys.babel.generic.ProtoMessage;
@@ -49,8 +49,8 @@ public class IncorrectAgreement extends GenericProtocol {
     private Host myself;
     private int joinedInstance;
 
-    private HashMap<BroadcastMessage, Integer> incomingProposals ;
-    private ArrayList<BroadcastMessage> decidedProposals;
+    private HashMap<broadcastMessage, Integer> incomingProposals ;
+    private ArrayList<broadcastMessage> decidedProposals;
 
 
     private List<Host> membership;
@@ -100,13 +100,15 @@ public class IncorrectAgreement extends GenericProtocol {
         registerSharedChannel(cId);
 
         /*---------------------- Register Message Serializers ---------------------- */
-        registerMessageSerializer(cId, BroadcastMessage.MSG_ID, BroadcastMessage.serializer);
+        registerMessageSerializer(cId, broadcastMessage.MSG_ID, broadcastMessage.serializer);
 
         /*---------------------- Register Message Handlers -------------------------- */
 
         try {
-            registerMessageHandler(cId, BroadcastMessage.MSG_ID, this::uponBroadcastMessage, this::uponMsgFail);
+            registerMessageHandler(cId, broadcastMessage.MSG_ID, this::uponBroadcastMessage, this::uponMsgFail);
 
+            registerMessageSerializer(cId, responseMessage.MSG_ID, responseMessage.serializer);
+            registerMessageHandler(cId, responseMessage.MSG_ID, this::uponResponse, this::uponMsgFail);
 
             registerMessageSerializer(cId, prepareMessage.MSG_ID, prepareMessage.serializer);
             registerMessageHandler(cId, prepareMessage.MSG_ID, this::uponPrepare, this::uponMsgFail);
@@ -135,39 +137,54 @@ public class IncorrectAgreement extends GenericProtocol {
 
 
     //  filter if is a propose or a propose_Ok
-    private void uponBroadcastMessage(BroadcastMessage msg, Host host, short sourceProto, int channelId) {
+    private void uponBroadcastMessage(broadcastMessage msg, Host host, short sourceProto, int channelId) {
         if(joinedInstance >= 0 ){
             switch (msg.getType()){
-                case BroadcastMessage.ACCEPT:
-                    if(msg.getInstance() < currentInstance && currentInstance < membership.size()){
-                        //send error message to Sender
+                case broadcastMessage.ACCEPT:
+                    if(msg.getInstance() !=  currentInstance+1
+                            && msg.getBallot() != currentBallot){
+                        // also send the typeId
+                        responseMessage err = new responseMessage(false);
+                        openConnection(host);
+                        sendMessage(err, host);
                     }
-
                     // (instance, Ballot, operation)
-                     //
-                     //
-                     //
+                    broadcastMessage accept_ok = new broadcastMessage(msg.getInstance(), msg.getOpId(), msg.getOp(),
+                            broadcastMessage.ACCEPT_OK, currentBallot);
+                    membership.forEach(h -> sendMessage(accept_ok, h));
 
                     break;
-                case BroadcastMessage.ACCEPT_OK:
-
+                case broadcastMessage.ACCEPT_OK:
                     // (instance, Ballot, operation)
                     if(decidedProposals.contains(msg))
                         return;
 
-                    int n_ofTurns = incomingProposals.getOrDefault(msg, 0);
-                    n_ofTurns++;
-                    incomingProposals.put(msg, n_ofTurns);
-
-                    if(n_ofTurns < membership.size()/2 + 1)
+                    int nOfAcceptOk = incomingProposals.getOrDefault(msg, 0);
+                    int new_nOfAcceptOk = nOfAcceptOk + 1;
+                    incomingProposals.put(msg, new_nOfAcceptOk);
+                    if(new_nOfAcceptOk < membership.size()/2 + 1)
                         return;
 
+                    incomingProposals.remove(msg);
                     decidedProposals.add(msg);
+
                     triggerNotification(new DecidedNotification(msg.getInstance(), msg.getOpId(), msg.getOp()));
 
                     break;
-                case BroadcastMessage.PREPARE:
+                case broadcastMessage.PREPARE:
                     // (instance, Ballot)
+                    if(msg.getBallot() < currentBallot){
+                        responseMessage err = new responseMessage(false);
+                        openConnection(host);
+                        sendMessage(err, host);
+                    }
+                    //if ballot is lower than current ballot send a error message
+                    //if ballot is higher, change the leader and tell the stateMachine
+
+                    currentBallot = msg.getBallot();
+                    currentLeader = host;
+
+                    // Send message to the state machine notifying 
 
                     break;
             }
@@ -183,23 +200,22 @@ public class IncorrectAgreement extends GenericProtocol {
         //We joined the system and can now start doing things
         joinedInstance = notification.getJoinInstance();
         membership = new LinkedList<>(notification.getMembership());
-
-
-
         logger.info("Agreement starting at instance {},  membership: {}", joinedInstance, membership);
-
-
     }
 
     private void uponProposeRequest(ProposeRequest request, short sourceProto) {
         logger.debug("Received " + request);
         if(request.getInstance() == -1) {
+            //If its -1 is the state machine trying to become the leader
             sendPrepare();
+
         }
+
         if(myself.equals(currentLeader)){
             return;
         }
-        BroadcastMessage msg = new BroadcastMessage(request.getInstance(), request.getOpId(), request.getOperation(), BroadcastMessage.ACCEPT);
+        broadcastMessage msg = new broadcastMessage(request.getInstance(), request.getOpId(), request.getOperation(),
+                broadcastMessage.ACCEPT, currentBallot);
         logger.debug("Sending to: " + currentLeader.getAddress());
         membership.forEach(h -> sendMessage(msg, h));
 
@@ -231,6 +247,9 @@ public class IncorrectAgreement extends GenericProtocol {
 
     //
 
+    private void uponResponse(responseMessage msg, Host host, short sourceProto, int channelId) {
+        //is responseOK or an error? handle
+    }
 
     private void sendPrepare() {
         int ballot = currentBallot + membership.indexOf(myself);
@@ -241,8 +260,11 @@ public class IncorrectAgreement extends GenericProtocol {
 
 
     private void uponPrepare(prepareMessage msg, Host host, short sourceProto, int channelId) {
+        // THIS GOES TO THE BROADCAST!!!
+        // change prepareMessage, into a prepare class with a to byte array and from bytearray
         logger.info("Received prepare message from {} for instance {} with ballot {}", host, msg.getInstance(), msg.getBallot());
         if(msg.getBallot() > currentBallot){
+
             //change the leader
             currentBallot = msg.getBallot();
             currentLeader = host;

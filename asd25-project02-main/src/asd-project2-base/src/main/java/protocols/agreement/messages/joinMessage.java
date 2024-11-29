@@ -7,13 +7,13 @@ import pt.unl.fct.di.novasys.network.data.Host;
 
 import java.io.IOException;
 
-public class JoinMessage extends ProtoMessage {
+public class joinMessage extends ProtoMessage {
 
     public final static short MSG_ID = 102;
 
     private final Host host;
 
-    public JoinMessage(Host host) {
+    public joinMessage(Host host) {
         super(MSG_ID);
         this.host = host;
     }
@@ -22,15 +22,15 @@ public class JoinMessage extends ProtoMessage {
         return host;
     }
 
-    public static ISerializer<JoinMessage> serializer = new ISerializer<JoinMessage>() {
+    public static ISerializer<joinMessage> serializer = new ISerializer<joinMessage>() {
         @Override
-        public void serialize(JoinMessage msg, ByteBuf out) throws IOException {
+        public void serialize(joinMessage msg, ByteBuf out) throws IOException {
             Host.serializer.serialize(msg.host, out);
         }
 
         @Override
-        public JoinMessage deserialize(ByteBuf in) throws IOException {
-            return new JoinMessage(Host.serializer.deserialize(in));
+        public joinMessage deserialize(ByteBuf in) throws IOException {
+            return new joinMessage(Host.serializer.deserialize(in));
         }
     };
 

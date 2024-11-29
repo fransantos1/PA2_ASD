@@ -342,7 +342,7 @@ public class StateMachine extends GenericProtocol {
 
 
     private void uponJoinMessage(JoinMessage request, Host from, short sourceProto, int channelId) {
-        logger.info("Received JoinMessage from {}",from);
+        logger.info("Received joinMessage from {}",from);
         //Generate a operationID
         UUID opUUID = UUID.randomUUID();
         MembershipOp op = new MembershipOp(0, request.getReplica());
