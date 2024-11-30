@@ -5,6 +5,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.Message;
 import protocols.abd.messages.*;
 import protocols.abd.notifications.ReadCompleteNotification;
+import protocols.abd.notifications.WriteCompleteNotification;
 import protocols.abd.requests.ReadRequest;
 import protocols.abd.requests.WriteRequest;
 import protocols.agreement.IncorrectAgreement;
@@ -48,7 +49,7 @@ public class ABD extends GenericProtocol {
 
     private State state;
     private List<Host> membership;
-    private int nextInstance;
+    //private int nextInstance;
 
     private Map<Long, Long> pendingOperations;
     private List<ProtoMessage> answers;
@@ -56,15 +57,18 @@ public class ABD extends GenericProtocol {
     private Map<Long, Long> val;
 
     private List<ProtoRequest> bufferOps;
+    private Map<Long, UUID> uuidBuffer;
 
     private final short APP_ID = 300;
 
     // TODO: Mudar para timestamp
     private long opSeq;
 
+
+
     public ABD(Properties props) throws IOException, HandlerRegistrationException {
         super(PROTOCOL_NAME, PROTOCOL_ID);
-        nextInstance = 0;
+        //nextInstance = 0;
 
         String address = props.getProperty("address");
         String port = props.getProperty("p2p_port");
@@ -173,6 +177,7 @@ public class ABD extends GenericProtocol {
             //Do something smart (like buffering the requests)
         } else if (state == State.ACTIVE) {
             // Definir para ver se é r
+            uuidBuffer.put(request.getKey(), request.getOpId());
             read(request.getKey());
         }
     }
@@ -183,6 +188,7 @@ public class ABD extends GenericProtocol {
             bufferOps.add(request);
             //Do something smart (like buffering the requests)
         } else if (state == State.ACTIVE) {
+            uuidBuffer.put(request.getKey(), request.getOpId());
             write(request.getKey(), request.getValue());
         }
     }
@@ -225,9 +231,8 @@ public class ABD extends GenericProtocol {
 
     private void write(long key, long v) {
         //You should write the operation to the state machine
-        pendingOperations.put(key, v);
         opSeq++;
-
+        pendingOperations.put(key, v);
         // Trigger broadcast
         for (Host h : membership) {
             if (!h.equals(self)) {
@@ -311,15 +316,19 @@ public class ABD extends GenericProtocol {
             answers.add(msg);
             if(answers.size() == membership.size() + 1) {
                 answers.clear();
-                // TODO: Ver o q tem de ser returnado!!!
-                if (pendingOperations.isEmpty())
-                    // writeOK
-                    //sendReply(new );
-                    return;
+                // TODO: Maybe add 1 to the opSeq
+                // opSeq++;
+                if (pendingOperations.isEmpty()){
+                    long key = ((AckMsg ) msg).getKey();
+                    long value = val.get(key);
+                    triggerNotification(new WriteCompleteNotification(uuidBuffer.get(key), key, value));
+                    uuidBuffer.remove(key);
+                }
                 else{
                     long key = ((AckMsg ) msg).getKey();
                     long value = val.get(key);
-                    triggerNotification(new ReadCompleteNotification(key, value));
+                    triggerNotification(new ReadCompleteNotification(uuidBuffer.get(key), key, value));
+                    uuidBuffer.remove(key);
                 }
 
             }
@@ -373,7 +382,7 @@ public class ABD extends GenericProtocol {
                     }
                 }
                 long key = ((ReadReplyMsg) msg).getKey();
-                pendingOperations.put(key, val1);
+                //pendingOperations.put(key, val1);
                 opSeq++;
                 answers.clear();
                 for (Host h : membership) {

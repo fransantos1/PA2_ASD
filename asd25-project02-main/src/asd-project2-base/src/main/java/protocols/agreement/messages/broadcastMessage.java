@@ -7,10 +7,6 @@ import pt.unl.fct.di.novasys.network.ISerializer;
 
 import java.util.UUID;
 
-/*************************************************
- * This is here just as an example, your solution
- * probably needs to use different message types
- *************************************************/
 public class broadcastMessage extends ProtoMessage {
 
     public final static short MSG_ID = 101;

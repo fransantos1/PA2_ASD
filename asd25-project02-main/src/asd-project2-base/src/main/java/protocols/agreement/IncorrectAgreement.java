@@ -6,6 +6,7 @@ import protocols.agreement.messages.prepareMessage;
 import protocols.agreement.notifications.JoinedNotification;
 import protocols.agreement.requests.AddReplicaRequest;
 import protocols.agreement.requests.RemoveReplicaRequest;
+import protocols.app.messages.ResponseMessage;
 import pt.unl.fct.di.novasys.babel.core.GenericProtocol;
 import pt.unl.fct.di.novasys.babel.exceptions.HandlerRegistrationException;
 import pt.unl.fct.di.novasys.babel.generic.ProtoMessage;
@@ -144,7 +145,7 @@ public class IncorrectAgreement extends GenericProtocol {
                     if(msg.getInstance() !=  currentInstance+1
                             && msg.getBallot() != currentBallot){
                         // also send the typeId
-                        responseMessage err = new responseMessage(false);
+                        responseMessage err = new responseMessage(false, responseMessage.ACCEPT_RESPONSE);
                         openConnection(host);
                         sendMessage(err, host);
                     }
@@ -174,7 +175,7 @@ public class IncorrectAgreement extends GenericProtocol {
                 case broadcastMessage.PREPARE:
                     // (instance, Ballot)
                     if(msg.getBallot() < currentBallot){
-                        responseMessage err = new responseMessage(false);
+                        responseMessage err = new responseMessage(false, responseMessage.PREPARE_RESPONSE);
                         openConnection(host);
                         sendMessage(err, host);
                     }
@@ -183,6 +184,10 @@ public class IncorrectAgreement extends GenericProtocol {
 
                     currentBallot = msg.getBallot();
                     currentLeader = host;
+
+                    // Probably should be a broadcast to make sure the majority knows but idk
+                    responseMessage prepare_ok = new responseMessage(true, responseMessage.PREPARE_RESPONSE);
+                    sendMessage(prepare_ok, host);
 
                     // Send message to the state machine notifying 
 
@@ -195,6 +200,28 @@ public class IncorrectAgreement extends GenericProtocol {
             //agreement instances, maybe we should do something with them...?
         }
     }
+
+    private void uponResponse(responseMessage msg, Host host, short sourceProto, int channelId) {
+        switch (msg.getType()){
+
+            // the accept_response is only for errors because, the accept_OK is a broadcast
+            case responseMessage.ACCEPT_RESPONSE:
+                if(!msg.isOK()){
+                    //there is something wrong with the Propose I made
+                }
+                break;
+            case responseMessage.PREPARE_RESPONSE:
+                if(!msg.isOK()){
+                    //they dont accept me has the new leader
+                }
+
+                // when I recieve the majority, become the leader
+
+                break;
+        }
+    }
+
+
 
     private void uponJoinedNotification(JoinedNotification notification, short sourceProto) {
         //We joined the system and can now start doing things
@@ -247,9 +274,6 @@ public class IncorrectAgreement extends GenericProtocol {
 
     //
 
-    private void uponResponse(responseMessage msg, Host host, short sourceProto, int channelId) {
-        //is responseOK or an error? handle
-    }
 
     private void sendPrepare() {
         int ballot = currentBallot + membership.indexOf(myself);

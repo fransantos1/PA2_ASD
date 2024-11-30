@@ -10,20 +10,37 @@ public class DecidedNotification extends ProtoNotification {
 
     public static final short NOTIFICATION_ID = 101;
 
+    public static final short MEMBERSHIP_OP = 0;
+    public static final short CHANGE_LEADER = 1;
+
     private final int instance;
     private final UUID opId;
     private final byte[] operation;
+    private final int opType;
+
 
     public DecidedNotification(int instance, UUID opId, byte[] operation) {
         super(NOTIFICATION_ID);
         this.instance = instance;
         this.opId = opId;
         this.operation = operation;
+        this.opType = 0;
     }
+
+    public DecidedNotification(int instance, UUID opId, byte[] operation, int opType) {
+        super(NOTIFICATION_ID);
+        this.instance = instance;
+        this.opId = opId;
+        this.operation = operation;
+        this.opType = opType;
+    }
+
 
     public int getInstance() {
         return instance;
     }
+
+    public int getOpType() { return opType; }
 
     public byte[] getOperation() {
         return operation;

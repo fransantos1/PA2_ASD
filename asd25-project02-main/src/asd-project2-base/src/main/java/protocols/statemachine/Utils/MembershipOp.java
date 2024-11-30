@@ -9,6 +9,13 @@ import pt.unl.fct.di.novasys.network.data.Host;
 
 public class MembershipOp {
 
+    public final static int ID = 0;
+
+
+    public final static int REMOVE = 0;
+    public final static int ADD = 1;
+
+
     private int type;
     private Host host;
 

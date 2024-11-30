@@ -11,13 +11,20 @@ public class OrderRequest extends ProtoRequest {
 
     private final UUID opId;
     private final byte[] operation;
+    private final int opType;
 
     public OrderRequest(UUID opId, byte[] operation) {
         super(REQUEST_ID);
         this.opId = opId;
         this.operation = operation;
+        opType = 0;
     }
-
+    public OrderRequest(UUID opId, byte[] operation, int opType) {
+        super(REQUEST_ID);
+        this.opId = opId;
+        this.operation = operation;
+        this.opType = opType;
+    }
     public byte[] getOperation() {
         return operation;
     }
@@ -25,6 +32,8 @@ public class OrderRequest extends ProtoRequest {
     public UUID getOpId() {
         return opId;
     }
+
+    public int getOpType() {return opType;}
 
     @Override
     public String toString() {

@@ -15,21 +15,25 @@ public class JoinReplyMsg extends ProtoMessage {
 
     public static final short MSG_ID = 401;
     private final List<Host> currentMembership;
-    private final List<Integer> stateSnapshot;
+    private final byte[] stateSnapshot;
+    private final int instance;
 
-    public JoinReplyMsg(List<Host> currentMembership, List<Integer> stateSnapshot) {
+
+    public JoinReplyMsg(List<Host> currentMembership, byte[] stateSnapshot, int instance) {
         super(MSG_ID);
         this.currentMembership = currentMembership;
         this.stateSnapshot = stateSnapshot;
+        this.instance = instance;
     }
 
     public List<Host> getCurrentMembership() {
         return currentMembership;
     }
 
-    public List<Integer> getStateSnapshot() {
+    public byte[] getStateSnapshot() {
         return stateSnapshot;
     }
+    public int getInstance() {return instance;}
 
     public static ISerializer<JoinReplyMsg> serializer = new ISerializer<>() {
         @Override
@@ -38,10 +42,9 @@ public class JoinReplyMsg extends ProtoMessage {
             for (Host h : sampleMessage.currentMembership) {
                 Host.serializer.serialize(h, out);
             }
-            out.writeInt(sampleMessage.stateSnapshot.size());
-            for (Integer i : sampleMessage.stateSnapshot) {
-                out.writeInt(i);
-            }
+            out.writeInt(sampleMessage.stateSnapshot.length);
+            out.writeBytes(sampleMessage.stateSnapshot);
+            out.writeInt(sampleMessage.instance);
         }
 
         @Override
@@ -52,11 +55,10 @@ public class JoinReplyMsg extends ProtoMessage {
                 membership.add(Host.serializer.deserialize(in));
             }
             size = in.readInt();
-            List<Integer> stateSnapshot = new ArrayList<>();
-            for (int i = 0; i < size; i++) {
-                stateSnapshot.add(in.readInt());
-            }
-            return new JoinReplyMsg(membership, stateSnapshot);
+            byte[] stateSnapshot = new byte[size];
+            in.readBytes(stateSnapshot);
+            int instance = in.readInt();
+            return new JoinReplyMsg(membership, stateSnapshot, instance);
         }
     };
 }

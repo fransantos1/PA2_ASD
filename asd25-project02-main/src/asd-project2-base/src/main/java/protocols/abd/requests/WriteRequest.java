@@ -19,6 +19,10 @@ public class WriteRequest extends ProtoRequest {
         this.value = value;
     }
 
+    public UUID getOpId(){
+        return opId;
+    }
+
     public long getKey() {
         return key;
     }

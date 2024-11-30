@@ -18,6 +18,10 @@ public class ReadRequest extends ProtoRequest {
         this.key = key;
     }
 
+    public UUID getOpId(){
+        return opId;
+    }
+
     public long getKey() {
         return key;
     }
