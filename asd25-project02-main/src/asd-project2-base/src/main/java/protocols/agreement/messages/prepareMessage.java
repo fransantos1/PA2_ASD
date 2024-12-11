@@ -10,7 +10,7 @@ import java.io.IOException;
 
 public class prepareMessage extends ProtoMessage {
 
-    public final static short MSG_ID = 103;
+    public final static short MSG_ID = 203;
     private final Host host;
     private final int ballot;
     private final int instance;

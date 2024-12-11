@@ -7,7 +7,7 @@ import java.util.UUID;
 
 public class JoinRequest extends ProtoMessage {
 
-        public static final short REQUEST_ID = 301;
+        public static final short REQUEST_ID = 406;
 
         private final Host requester;
         private final UUID opId;

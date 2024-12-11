@@ -10,7 +10,7 @@ import java.io.IOException;
 
 public class LeaveMsg extends ProtoMessage {
 
-    public static final short MSG_ID = 208;
+    public static final short MSG_ID = 104;
 
     private final Host leaving;
 

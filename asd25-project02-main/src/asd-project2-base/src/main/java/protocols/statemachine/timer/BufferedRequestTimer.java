@@ -2,10 +2,10 @@ package protocols.statemachine.timer;
 
 import pt.unl.fct.di.novasys.babel.generic.ProtoTimer;
 
-public class HeartBeatTimer extends ProtoTimer {
-    public static final short TIMER_ID = 409;
+public class BufferedRequestTimer extends ProtoTimer{
+    public static final short TIMER_ID = 408;
 
-    public HeartBeatTimer() {
+    public BufferedRequestTimer() {
         super(TIMER_ID);
     }
 

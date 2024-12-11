@@ -10,7 +10,7 @@ public class responseMessage extends ProtoMessage {
     public final static int ACCEPT_RESPONSE = 1;
 
 
-    public final static short MSG_ID = 104;
+    public final static short MSG_ID = 204;
     private final boolean isOK;
     private final int type;
 

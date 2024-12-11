@@ -10,16 +10,18 @@ import pt.unl.fct.di.novasys.network.data.Host;
 
 public class ReadTagRepMsg extends ProtoMessage {
 
-    public static final short MSG_ID = 202;
+    public static final short MSG_ID = 108;
 
     private final long opSeq;
-    private final long tag;
+    private final long tagl;
+    private final long tagr;
     private final long key;
 
-    public ReadTagRepMsg(long opSeq, long tag, long key) {
+    public ReadTagRepMsg(long opSeq, long tagl, long tagr, long key) {
         super(MSG_ID);
         this.opSeq = opSeq;
-        this.tag = tag;
+        this.tagl = tagl;
+        this.tagr = tagr;
         this.key = key;
     }
 
@@ -27,8 +29,12 @@ public class ReadTagRepMsg extends ProtoMessage {
         return opSeq;
     }
 
-    public long getTag() {
-        return tag;
+    public long getTagl() {
+        return tagl;
+    }
+
+    public long getTagr() {
+        return tagr;
     }
 
     public long getKey() {
@@ -39,16 +45,18 @@ public class ReadTagRepMsg extends ProtoMessage {
         @Override
         public void serialize(ReadTagRepMsg sampleMessage, ByteBuf out) throws IOException {
             out.writeLong(sampleMessage.opSeq);
-            out.writeLong(sampleMessage.tag);
+            out.writeLong(sampleMessage.tagl);
+            out.writeLong(sampleMessage.tagr);
             out.writeLong(sampleMessage.key);
         }
 
         @Override
         public ReadTagRepMsg deserialize(ByteBuf in) throws IOException {
             long opSeq = in.readLong();
-            long tag = in.readLong();
+            long tagl = in.readLong();
+            long tagr = in.readLong();
             long key = in.readLong();
-            return new ReadTagRepMsg(opSeq, tag, key);
+            return new ReadTagRepMsg(opSeq, tagl, tagr, key);
         }
     };
 

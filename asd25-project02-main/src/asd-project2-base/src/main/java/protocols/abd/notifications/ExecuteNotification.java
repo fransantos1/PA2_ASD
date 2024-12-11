@@ -7,7 +7,7 @@ import java.util.UUID;
 
 public class ExecuteNotification extends ProtoNotification {
 
-    public static final short NOTIFICATION_ID = 202;
+    public static final short NOTIFICATION_ID = 111;
 
     private final UUID opId;
     private final byte[] operation;

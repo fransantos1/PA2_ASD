@@ -1,13 +1,18 @@
 package protocols.statemachine;
 
 import protocols.agreement.notifications.JoinedNotification;
+import protocols.agreement.requests.AddReplicaRequest;
 import protocols.app.HashApp;
+import protocols.app.requests.CurrentStateReply;
+import protocols.app.requests.CurrentStateRequest;
 import protocols.app.requests.InstallStateRequest;
 import protocols.app.utils.Operation;
 import protocols.statemachine.Utils.MembershipOp;
 import protocols.statemachine.messages.JoinMessage;
 import protocols.statemachine.messages.JoinReplyMsg;
 import protocols.statemachine.messages.forwardRequestMessage;
+import protocols.statemachine.timer.BufferedRequestTimer;
+import protocols.statemachine.timer.HeartBeatTimer;
 import protocols.statemachine.timer.JoiningTimer;
 import pt.unl.fct.di.novasys.babel.core.GenericProtocol;
 import pt.unl.fct.di.novasys.babel.exceptions.HandlerRegistrationException;
@@ -53,36 +58,26 @@ public class StateMachine extends GenericProtocol {
 
     //Protocol information, to register in babel
     public static final String PROTOCOL_NAME = "StateMachine";
-    public static final short PROTOCOL_ID = 200;
+    public static final short PROTOCOL_ID = 411;
     
     private final Host self;     //My own address/port
     private Host leader = null;
 
     private final int channelId; //Id of the created channel
-        
 
-    
     private State state;
     private List<Host> membership;
     private int nextInstance;
 
-
-
-
-    //OPType 3 = add replica
-    //OPType 4 = remove replica
-
+    // to mantain the membership
+    //max timeout 10s
     private  final int timeOutTime = 10000;//10s
     private final int timeOutTries = 5;
 
-    // to mantain the membership
-    //max timeout 10s
     private HashMap<Host, Long> lastCommunication;
     private HashMap<Host, Integer> timeOutHosts;
 
     private HashMap<Long, Long> stateMap;
-
-
 
     private Queue<OrderRequest> requestsWatingTurn;
     private boolean isRoundActive = false;
@@ -126,6 +121,9 @@ public class StateMachine extends GenericProtocol {
         /*--------------------- Register Request Handlers ----------------------------- */
         registerRequestHandler(OrderRequest.REQUEST_ID, this::uponOrderRequest);
 
+
+        /*--------------------- Register Reply Handlers ----------------------------- */
+        registerReplyHandler(CurrentStateReply.REQUEST_ID, this::uponCurrentStateReply);
         /*--------------------- Register Notification Handlers ----------------------------- */
         subscribeNotification(DecidedNotification.NOTIFICATION_ID, this::uponDecidedNotification);
 
@@ -138,8 +136,13 @@ public class StateMachine extends GenericProtocol {
         registerMessageSerializer(channelId, forwardRequestMessage.MSG_ID, forwardRequestMessage.serializer);
         registerMessageHandler(channelId, forwardRequestMessage.MSG_ID, this::uponRequestForward, this::uponMsgFail);
 
+        registerMessageSerializer(channelId,JoinReplyMsg.MSG_ID, JoinReplyMsg.serializer);
+        registerMessageHandler(channelId, JoinReplyMsg.MSG_ID, this::uponJoinReplyMessage, this::uponMsgFail);
+
         //registerMessageHandler(channelId, JoinReplyMsg.MSG_ID, JoinReplyMsg.serializer);
         /*--------------------- Register Timer Handlers ----------------------------- */
+        registerTimerHandler(BufferedRequestTimer.TIMER_ID, this::processNextBufferedRequest);
+
     }
 
     @Override
@@ -168,50 +171,43 @@ public class StateMachine extends GenericProtocol {
             //I'm part of the initial membership, so I'm assuming the system is bootstrapping (initiating)
             membership = new LinkedList<>(initialMembership);
             membership.forEach(this::openConnection);
+            requestChangeLeader();
 
             triggerNotification(new JoinedNotification(membership, 0));
-            processBufferedRequests();
+            setupPeriodicTimer(new BufferedRequestTimer(),1000, 1000);
         } else {
             state = State.JOINING;
             logger.info("Starting in JOINING as I am not part of initial membership");
-            //You have to do something to join the system and know which instance you joined
-            // Start timer trigger to requestToJoin
             requestToJoin();
-            // (and copy the state of that instance)
         }
 
     }
-
-
 
     private void processBufferedRequests() {
-        logger.info("Processing buffered requests now that state is ACTIVE");
-        Enumeration<OrderRequest> requests = bufferedReq.elements();
-        while(requests.hasMoreElements()) {
-            OrderRequest req = requests.nextElement();
-            sendRequest(req, IncorrectAgreement.PROTOCOL_ID);
-        }
+             logger.info("Processing buffered requests now that state is ACTIVE");
+             Enumeration<OrderRequest> requests = bufferedReq.elements();
+             while(requests.hasMoreElements()) {
+                 OrderRequest req = requests.nextElement();
+                 sendRequest(req, IncorrectAgreement.PROTOCOL_ID);
+             }
     }
 
+
+
+    private void processNextBufferedRequest(BufferedRequestTimer timer, long timerID) {
+        if(bufferedReq.elements().hasMoreElements()) {
+            OrderRequest req = bufferedReq.elements().nextElement();
+            sendRequest(req, StateMachine.PROTOCOL_ID);
+        }
+    }
 
 
     /*--------------------------------- Order Requests ---------------------------------------- */
-
     private void uponRequestForward(forwardRequestMessage request, Host from, short sourceProto, int channelId) {
         sendRequest(request.getReq(), StateMachine.PROTOCOL_ID);
     }
 
     private void uponOrderRequest(OrderRequest request, short sourceProto) {
-        // NEED TO FILTER OUT OrderRequests
-        if(request.getOpType() != 0){
-            switch(request.getOpType()){
-                case MembershipOp.ID:
-
-
-                    break;
-
-            }
-        }
         logger.debug("Received request: " + request);
         if (state == State.JOINING) {
             bufferedReq.put(request.getId(), request);
@@ -219,12 +215,16 @@ public class StateMachine extends GenericProtocol {
             awaitingRequests.put(request.getOpId(), request);
             if(!leader.equals(self)){
                 openConnection(leader);
+                logger.debug("Sending request To Leader : " + leader.getAddress());
                 sendMessage( new forwardRequestMessage(request), leader);
                 return;
             }
+            logger.debug("Sending request To MultiPaxos");
             requestsWatingTurn.add(request);
+            sendNextPropose();
         }
     }
+
     private void sendNextPropose(){
         if(isRoundActive)
             return;
@@ -232,119 +232,54 @@ public class StateMachine extends GenericProtocol {
         OrderRequest req = requestsWatingTurn.poll();
         if(req == null)
             return;
+        logger.debug("Sending next propose: " + req.getOpType());
         sendRequest(new ProposeRequest(nextInstance++, req.getOpId(), req.getOperation()),
                 IncorrectAgreement.PROTOCOL_ID);
     }
 
     private void uponDecidedNotification(DecidedNotification notification, short sourceProto) {
         logger.debug("Received notification: " + notification);
-
-        //You should be careful and check if this is an app operation
-        //or if this is an operations that was executed by the state machine itself (in which case you should execute add/remove replica ex.)
-
-
         if(notification.getInstance() > nextInstance+1){
+            logger.debug("Im behind, asking for a state transfer");
             // ask for state transfer or smth
             return;
         }
 
-
-
-
-        isRoundActive = false;
-        int instance = notification.getInstance();
-        nextInstance = instance;
+        nextInstance = notification.getInstance();
         if(notification.getOpType() == 0) {
-            //sends to the app
             triggerNotification(new ExecuteNotification(notification.getOpId(), notification.getOperation()));
         }
 
-        switch(notification.getOpType()){
-            case DecidedNotification.MEMBERSHIP_OP:
-                MembershipOp op;
-                try {
-                    op= MembershipOp.fromByteArray(notification.getOperation());
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-                if(op.getType() == MembershipOp.ADD){
-                    //add
-                   /* membership.add the replica of operation
-                    open connection with the replica of operation*/
-                }
-                if(op.getType() == MembershipOp.REMOVE){
-                    //remove
-                    /* membership.remove the replica of operation
-                    close connection with the replica of operation*/
-                }
-                break;
-            case DecidedNotification.CHANGE_LEADER:
-                break;
-            // Change leader case
-
-        }
-
-        decidedRequests.put(instance, notification);
-
-        /*while(decidedRequests.containsKey(nextInstance)) {
-            DecidedNotification currDecision = decidedRequests.remove(nextInstance);
-
-            nextInstance++;
-
-            Operation op;
-            try{
-                op = Operation.fromByteArray(currDecision.getOperation());
+        if (notification.getOpType() == DecidedNotification.MEMBERSHIP_OP) {
+            MembershipOp op;
+            try {
+                op = MembershipOp.fromByteArray(notification.getOperation());
             } catch (IOException e) {
-                logger.error("Failed to deserialize operation: {}", e.getMessage());
-                continue;
+                throw new RuntimeException(e);
             }
-
-        }*/
-
-
-
-
-        //is a state machine function
-        // if its the correct instance (meaning the next instance)
-        //remove from decided list and loop to all the instances in order
-        //if I am the one who porposed this and if its not a app request
-        //if its true than do what is necesseray (example: let a node join)
-        //if not true send the update to the app and add it to the kv
-        //it its not the correct instance handle it
-        //have a timout for the correct instance, and if it doesnt show up then rejoin, ask for the correct instace, state transfer?
-
-
-        if(awaitingRequests.containsKey(notification.getOpId())) { // if this replica made the request
-            awaitingRequests.remove(notification.getOpId());
-            //send next
-            // THIS NEEDS TO BE INTERNAL
-
+            switch (op.getType()) {
+                case MembershipOp.ADD:
+                    addReplica(notification);
+                    break;
+                case MembershipOp.REMOVE:
+                    removeReplica(notification);
+                    break;
+                case MembershipOp.CHANGE_LEADER:
+                    leader = op.getHost();
+                    break;
+            }
         }
-
-        if(notification.getInstance() == nextInstance++){ // not sure if its the next instance that we want to use
-            // add to the state KV
-            //check if its an internal operation
-            //if yes execute
-            //if no send to the app
-
-        }
-
         decidedRequests.put(notification.getInstance(), notification);
 
-        //Maybe we should make sure operations are executed in order?
-        // what
-
-        isRoundActive = false;
-        sendNextPropose();
-
+        if(leader.equals(self)){
+            isRoundActive = false;
+            sendNextPropose();
+        }
     }
+
     /*------- Change Leader ------- */
 
     private void requestChangeLeader(){
-
-
-
-
         // when I send a request to become a leader I need to be aware that i'm gonna recieve requests before I know i'm the leader
         sendRequest(new ProposeRequest(-1, null , null), IncorrectAgreement.PROTOCOL_ID);
     }
@@ -361,14 +296,36 @@ public class StateMachine extends GenericProtocol {
         requestToJoinIndex++;
     }
 
+    MembershipOp awaitingCurrent_state = null;
     private void addReplica(DecidedNotification notification) {
         logger.info("Adding new replica based on decided notification: {}", notification);
-        if (awaitingRequests.containsKey(notification.getOpId())) { // if this replica made the request
-            awaitingRequests.remove(notification.getOpId());
-            // send message back to the requester
-            triggerNotification(new JoinedNotification(membership, notification.getInstance()));
+        MembershipOp op;
+        try {
+            op = MembershipOp.fromByteArray(notification.getOperation());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
+        if (awaitingRequests.containsKey(notification.getOpId())) {
+            awaitingRequests.remove(notification.getOpId());
+            sendRequest(new CurrentStateRequest(nextInstance), HashApp.PROTO_ID);
+            awaitingCurrent_state = op;
+        }
+
+        AddReplicaRequest req = new AddReplicaRequest(notification.getInstance(), op.getHost());
+        sendRequest(req, IncorrectAgreement.PROTOCOL_ID);
+
     }
+    private void uponCurrentStateReply(CurrentStateReply reply,short sourceProto) {
+        byte[] currentState = reply.getState();
+        JoinReplyMsg response = new JoinReplyMsg(membership, currentState, nextInstance);
+        openConnection(awaitingCurrent_state.getHost());
+        sendMessage(response, awaitingCurrent_state.getHost());
+    }
+
+
+
+
+
     private void removeReplica(DecidedNotification notification) {
         logger.info("Removing replica based on decided notification: {}", notification);
 
@@ -379,15 +336,13 @@ public class StateMachine extends GenericProtocol {
         //Generate a operationID
         UUID opUUID = UUID.randomUUID();
         MembershipOp op = new MembershipOp(MembershipOp.ADD, request.getReplica());
-
-
         try {
             sendRequest(new OrderRequest(opUUID, op.toByteArray(), MembershipOp.ID), IncorrectAgreement.PROTOCOL_ID);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
-    private void uponJoinReply(JoinReplyMsg reply, Host from,short sourceProto, int channelId) {
+    private void uponJoinReplyMessage(JoinReplyMsg reply, Host from,short sourceProto, int channelId) {
         // full state
         // instance
         // Leader
@@ -399,10 +354,9 @@ public class StateMachine extends GenericProtocol {
         membership.forEach(this::openConnection);
         // send snapshot to HashApp
         sendRequest(new InstallStateRequest(reply.getStateSnapshot()), HashApp.PROTO_ID);
-        triggerNotification(new JoinedNotification(membership, 0));
-        processBufferedRequests();
+        triggerNotification(new JoinedNotification(membership, reply.getInstance()));
+        setupPeriodicTimer(new BufferedRequestTimer(),1000, 1000);
     }
-
 
     private void heartBeat(JoiningTimer timer, long timerId) {
 
@@ -437,20 +391,14 @@ public class StateMachine extends GenericProtocol {
     }
 
 
+
     /*---------------------------------Receiving Messages ---------------------------------------- */
-
-
-
-
-
 
 
     private void uponMsgFail(ProtoMessage msg, Host host, short destProto, Throwable throwable, int channelId) {
         //If a message fails to be sent, for whatever reason, log the message and the reason
         logger.error("Message {} to {} failed, reason: {}", msg, host, throwable);
     }
-
-
 
     /* --------------------------------- TCPChannel Events ---------------------------- */
     private void uponOutConnectionUp(OutConnectionUp event, int channelId) {
@@ -476,10 +424,6 @@ public class StateMachine extends GenericProtocol {
     private void uponInConnectionDown(InConnectionDown event, int channelId) {
         logger.trace("Connection from {} is down, cause: {}", event.getNode(), event.getCause());
     }
-
-
-
-
 
 
 }

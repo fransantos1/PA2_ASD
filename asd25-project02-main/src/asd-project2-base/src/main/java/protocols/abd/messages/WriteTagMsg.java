@@ -7,22 +7,31 @@ import pt.unl.fct.di.novasys.network.ISerializer;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 
 public class WriteTagMsg extends ProtoMessage {
 
-    public static final short MSG_ID = 203;
+    public static final short MSG_ID = 109;
 
     private final long opSeq;
+    private final UUID uuid;
     private final long key;
-    private final long newTag;
+    private final long newTagl;
+    private final long newTagr;
     private final long newValue;
 
-    public WriteTagMsg(long opSeq, long key, long newTag, long newValue){
+    public WriteTagMsg(long opSeq, UUID uuid, long key, long newTagl, long newTagr, long newValue){
         super(MSG_ID);
         this.opSeq = opSeq;
+        this.uuid = uuid;
         this.key = key;
-        this.newTag = newTag;
+        this.newTagl = newTagl;
+        this.newTagr = newTagr;
         this.newValue = newValue;
+    }
+
+    public UUID getUuid() {
+        return uuid;
     }
 
     public long getOpSeq() {
@@ -33,8 +42,12 @@ public class WriteTagMsg extends ProtoMessage {
         return key;
     }
 
-    public long getNewTag() {
-        return newTag;
+    public long getNewTagl() {
+        return newTagl;
+    }
+
+    public long getNewTagr() {
+        return newTagr;
     }
 
     public long getNewValue() {
@@ -46,9 +59,13 @@ public class WriteTagMsg extends ProtoMessage {
         public void serialize(WriteTagMsg sampleMessage, ByteBuf out) throws IOException {
             out.writeLong(sampleMessage.opSeq);
 
+            out.writeLong(sampleMessage.uuid.getMostSignificantBits());
+            out.writeLong(sampleMessage.uuid.getLeastSignificantBits());
+
             out.writeLong(sampleMessage.key);
 
-            out.writeLong(sampleMessage.newTag);
+            out.writeLong(sampleMessage.newTagl);
+            out.writeLong(sampleMessage.newTagr);
 
             out.writeLong(sampleMessage.newValue);
         }
@@ -57,13 +74,17 @@ public class WriteTagMsg extends ProtoMessage {
         public WriteTagMsg deserialize(ByteBuf in) throws IOException {
             long opSeq = in.readLong();
 
+            UUID uuid = new UUID(in.readLong(), in.readLong());
+
             long key = in.readLong();
 
-            long newTag = in.readLong();
+            long newTagl = in.readLong();
+
+            long newTagr = in.readLong();
 
             long newValue = in.readLong();
 
-            return new WriteTagMsg(opSeq, key, newTag, newValue);
+            return new WriteTagMsg(opSeq, uuid, key, newTagl, newTagr, newValue);
         }
     };
 }

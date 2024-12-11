@@ -11,7 +11,7 @@ import java.util.UUID;
 
 public class forwardRequestMessage extends ProtoMessage {
 
-    public final static short MSG_ID = 403;
+    public final static short MSG_ID = 401;
 
     private final OrderRequest req;
 

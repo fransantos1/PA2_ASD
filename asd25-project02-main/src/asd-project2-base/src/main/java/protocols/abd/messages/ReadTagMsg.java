@@ -9,7 +9,7 @@ import pt.unl.fct.di.novasys.network.data.Host;
 
 public class ReadTagMsg extends ProtoMessage{
 
-    public static final short MSG_ID = 201;
+    public static final short MSG_ID = 107;
 
     private final long opSeq;
     private final long key1;

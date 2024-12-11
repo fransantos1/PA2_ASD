@@ -9,7 +9,7 @@ import java.util.UUID;
 
 public class broadcastMessage extends ProtoMessage {
 
-    public final static short MSG_ID = 101;
+    public final static short MSG_ID = 201;
 
     public final static int PREPARE = 0;
     public final static int ACCEPT = 1;
@@ -18,6 +18,7 @@ public class broadcastMessage extends ProtoMessage {
     private final UUID opId;
     private final int instance;
     private final byte[] op;
+
     private final int type;
     private final int ballot;
 

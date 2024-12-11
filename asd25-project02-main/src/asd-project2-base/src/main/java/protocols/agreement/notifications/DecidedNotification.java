@@ -8,10 +8,9 @@ import pt.unl.fct.di.novasys.babel.generic.ProtoNotification;
 
 public class DecidedNotification extends ProtoNotification {
 
-    public static final short NOTIFICATION_ID = 101;
+    public static final short NOTIFICATION_ID = 205;
 
-    public static final short MEMBERSHIP_OP = 0;
-    public static final short CHANGE_LEADER = 1;
+    public static final short MEMBERSHIP_OP = 1;
 
     private final int instance;
     private final UUID opId;

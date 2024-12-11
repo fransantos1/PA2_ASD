@@ -14,6 +14,7 @@ public class MembershipOp {
 
     public final static int REMOVE = 0;
     public final static int ADD = 1;
+    public final static int CHANGE_LEADER = 2;
 
 
     private int type;

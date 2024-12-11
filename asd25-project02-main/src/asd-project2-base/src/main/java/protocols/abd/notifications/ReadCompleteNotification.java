@@ -8,7 +8,7 @@ import java.util.UUID;
 
 public class ReadCompleteNotification extends ProtoNotification {
 
-    public static final short NOTIFICATION_ID = 203;
+    public static final short NOTIFICATION_ID = 112;
 
     private final UUID uuid;
     private final long key;

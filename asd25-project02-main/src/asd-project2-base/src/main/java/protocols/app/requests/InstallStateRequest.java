@@ -4,7 +4,7 @@ import pt.unl.fct.di.novasys.babel.generic.ProtoRequest;
 
 public class InstallStateRequest extends ProtoRequest {
 
-    public static final short REQUEST_ID = 302;
+    public static final short REQUEST_ID = 305;
 
     private byte[] state;
     

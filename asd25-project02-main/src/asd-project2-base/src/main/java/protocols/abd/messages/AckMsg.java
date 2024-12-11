@@ -8,7 +8,7 @@ import java.io.IOException;
 
 public class AckMsg extends ProtoMessage {
 
-    public static final short MSG_ID = 204;
+    public static final short MSG_ID = 101;
 
     private final long opSeq;
     private final long key;

@@ -5,15 +5,15 @@ import pt.unl.fct.di.novasys.babel.generic.ProtoNotification;
 import java.nio.ByteBuffer;
 import java.util.UUID;
 
-public class WriteCompleteNotification extends ProtoNotification {
+public class UpdateValueNotification extends ProtoNotification {
 
-    public static final short NOTIFICATION_ID = 114;
+    public static final short NOTIFICATION_ID = 113;
 
     private final UUID uuid;
     private final long key;
     private final long value;
 
-    public WriteCompleteNotification(UUID id, long key, long value){
+    public UpdateValueNotification(UUID id, long key, long value){
         super(NOTIFICATION_ID);
         this.uuid = id;
         this.key = key;
@@ -36,15 +36,12 @@ public class WriteCompleteNotification extends ProtoNotification {
 
     @Override
     public String toString() {
-        return "ReadCompleteNotification{" +
+        return "UpdateValueNotification{" +
+                "id=" + uuid +
                 "key=" + key +
                 ", value=" + value +
                 '}';
     }
-
-
-
-
 
 
 }

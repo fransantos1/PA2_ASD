@@ -9,7 +9,7 @@ import java.io.IOException;
 
 public class joinMessage extends ProtoMessage {
 
-    public final static short MSG_ID = 102;
+    public final static short MSG_ID = 202;
 
     private final Host host;
 

@@ -8,7 +8,7 @@ import java.io.IOException;
 
 public class ReadMsg extends ProtoMessage {
 
-    public static final short MSG_ID = 205;
+    public static final short MSG_ID = 105;
 
     private final long opSeq;
     private final long key;
