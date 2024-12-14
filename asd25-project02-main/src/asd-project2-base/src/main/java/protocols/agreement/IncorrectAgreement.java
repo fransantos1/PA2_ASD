@@ -8,6 +8,7 @@ import protocols.agreement.requests.AddReplicaRequest;
 import protocols.agreement.requests.RemoveReplicaRequest;
 import protocols.app.messages.ResponseMessage;
 import protocols.statemachine.Utils.MembershipOp;
+import protocols.statemachine.requests.OrderRequest;
 import pt.unl.fct.di.novasys.babel.core.GenericProtocol;
 import pt.unl.fct.di.novasys.babel.exceptions.HandlerRegistrationException;
 import pt.unl.fct.di.novasys.babel.generic.ProtoMessage;
@@ -39,14 +40,14 @@ public class IncorrectAgreement extends GenericProtocol {
 
 
     private Host currentLeader;
-    private int currentBallot;
+    private int currentBallot = 0;
 
 
     private Host myself;
     private int joinedInstance;
 
-    private HashMap<broadcastMessage, Integer> incomingProposals ;
-    private ArrayList<broadcastMessage> decidedProposals;
+    private HashMap<UUID, Integer> incomingProposals ;
+    private ArrayList<UUID> decidedProposals;
 
 
     private List<Host> membership;
@@ -68,7 +69,6 @@ public class IncorrectAgreement extends GenericProtocol {
 
 
 
-
         registerRequestHandler(AddReplicaRequest.REQUEST_ID, this::uponAddReplica);
         registerRequestHandler(RemoveReplicaRequest.REQUEST_ID, this::uponRemoveReplica);
 
@@ -86,7 +86,7 @@ public class IncorrectAgreement extends GenericProtocol {
     private void uponChannelCreated(ChannelReadyNotification notification, short sourceProto) {
         int cId = notification.getChannelId();
         myself = notification.getMyself();
-
+        membership = new LinkedList<>();
         decidedProposals = new ArrayList<>();
         incomingProposals = new HashMap<>();
 
@@ -130,22 +130,22 @@ public class IncorrectAgreement extends GenericProtocol {
                     }
 
                     broadcastMessage accept_ok = new broadcastMessage(msg.getInstance(), msg.getOpId(), msg.getOp(),
-                            broadcastMessage.ACCEPT_OK, currentBallot);
+                            broadcastMessage.ACCEPT_OK, currentBallot, msg.getOpType());
                     broadCast(accept_ok);
                     break;
 
                 case broadcastMessage.ACCEPT_OK:
-                    if(decidedProposals.contains(msg))
+                    if(decidedProposals.contains(msg.getOpId()))
                         return;
-                    int nOfAcceptOk = incomingProposals.getOrDefault(msg, 0);
+                    int nOfAcceptOk = incomingProposals.getOrDefault(msg.getOpId(), 0);
                     int new_nOfAcceptOk = nOfAcceptOk + 1;
-                    incomingProposals.put(msg, new_nOfAcceptOk);
-                    if(new_nOfAcceptOk < membership.size()/2 + 1)
+                    incomingProposals.put(msg.getOpId(), new_nOfAcceptOk);
+                    if(membership.size() != 2 && new_nOfAcceptOk < membership.size()/2 + 1) {
                         return;
-
-                    incomingProposals.remove(msg);
-                    decidedProposals.add(msg);
-                    triggerNotification(new DecidedNotification(msg.getInstance(), msg.getOpId(), msg.getOp()));
+                    }
+                    incomingProposals.remove(msg.getOpId());
+                    decidedProposals.add(msg.getOpId());
+                    triggerNotification(new DecidedNotification(msg.getInstance(), msg.getOpId(), msg.getOp(), msg.getOpType()));
                     break;
 
                 case broadcastMessage.PREPARE:
@@ -159,7 +159,7 @@ public class IncorrectAgreement extends GenericProtocol {
                     currentLeader = host;
                     responseMessage prepare_ok = new responseMessage(true, responseMessage.PREPARE_RESPONSE);
                     sendMessage(prepare_ok, host);
-                    triggerNotification(new DecidedNotification(msg.getInstance(), msg.getOpId(), msg.getOp(), DecidedNotification.MEMBERSHIP_OP));
+                    triggerNotification(new DecidedNotification(msg.getInstance(), msg.getOpId(), msg.getOp(), msg.getOpType()));
                     break;
             }
         } else {
@@ -197,16 +197,16 @@ public class IncorrectAgreement extends GenericProtocol {
     }
 
     private void uponProposeRequest(ProposeRequest request, short sourceProto) {
-        logger.debug("Received " + request);
+
         if(request.getInstance() == -1) {
             sendPrepare();
-
         }
         if(myself.equals(currentLeader)){
             return;
         }
-        broadcastMessage msg = new broadcastMessage(request.getInstance(), request.getOpId(), request.getOperation(), broadcastMessage.ACCEPT, currentBallot);
-        logger.debug("Sending propose: " + request.toString());
+        logger.info("Recieved propose for instace: {}",request.getInstance());
+        broadcastMessage msg = new broadcastMessage(request.getInstance(), request.getOpId(), request.getOperation(), broadcastMessage.ACCEPT, currentBallot, request.getOpType());
+        //logger.debug("Sending propose: " + request.toString());
         broadCast(msg);
     }
 
@@ -218,7 +218,7 @@ public class IncorrectAgreement extends GenericProtocol {
         int ballot = currentBallot + membership.indexOf(myself);
         prepareMessage msg = new prepareMessage(myself,ballot, currentInstance++);
         logger.info("Sending prepare message to {} for instance {} with ballot {}", myself , msg.getInstance(), msg.getBallot());
-        broadcastMessage new_msg = new broadcastMessage(currentInstance++, null, null, broadcastMessage.PREPARE, ballot);
+        broadcastMessage new_msg = new broadcastMessage(currentInstance++, null, null, broadcastMessage.PREPARE, ballot, broadcastMessage.MEMBERSHIP_OP);
         broadCast(new_msg);
 
         //membership.forEach(h -> sendMessage(msg, h));
@@ -227,6 +227,7 @@ public class IncorrectAgreement extends GenericProtocol {
 
     private void uponAddReplica(AddReplicaRequest request, short sourceProto) {
         logger.debug("Received " + request);
+
         membership.add(request.getReplica());
     }
     private void uponRemoveReplica(RemoveReplicaRequest request, short sourceProto) {

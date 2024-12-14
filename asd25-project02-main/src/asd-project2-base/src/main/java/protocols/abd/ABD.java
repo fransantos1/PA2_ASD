@@ -56,7 +56,8 @@ public class ABD extends GenericProtocol {
     //private Map<Long, Long> tag;
     private Map<Long, ABDInstance> val;
 
-    private List<ProtoRequest> bufferOps;
+    private List<ProtoRequest> bufferOpsW;
+    private List<ProtoRequest> bufferOpsR;
     private Map<Long, UUID> uuidBuffer;
 
     private final short APP_ID = 300;
@@ -131,10 +132,12 @@ public class ABD extends GenericProtocol {
         answers = new LinkedList<>();
         //tag = new HashMap<>();
         val = new HashMap<>();
-        bufferOps = new LinkedList<>();
+        bufferOpsW = new LinkedList<>();
+        bufferOpsR = new LinkedList<>();
         uuidBuffer = new HashMap<>();
         //opSeq = 0;
         executedOps = 0;
+        membership = new LinkedList<>();
     }
 
     @Override
@@ -154,8 +157,9 @@ public class ABD extends GenericProtocol {
                 throw new AssertionError("Error parsing initial_membership", e);
             }
             initialMembership.add(h);
+            membership.add(h);
         }
-        logger.info(initialMembership.toString());
+        logger.info(initialMembership.toString()    );
         if (initialMembership.contains(self)) {
             state = State.JOINING;
             logger.info("Starting in ACTIVE as I am part of initial membership");
@@ -175,7 +179,7 @@ public class ABD extends GenericProtocol {
     private void uponReadRequest(ReadRequest request, short sourceProto) {
         logger.debug("Received read request: " + request);
         if (state == State.JOINING) {
-            bufferOps.add(request);
+            bufferOpsR.add(request);
             //Do something smart (like buffering the requests)
         } else if (state == State.ACTIVE) {
             // Definir para ver se é r
@@ -187,7 +191,7 @@ public class ABD extends GenericProtocol {
     private void uponWriteRequest(WriteRequest request, short sourceProto) {
         logger.debug("Received write request: " + request);
         if (state == State.JOINING) {
-            bufferOps.add(request);
+            bufferOpsW.add(request);
             //Do something smart (like buffering the requests)
         } else if (state == State.ACTIVE) {
             uuidBuffer.put(request.getKey(), request.getOpId());
@@ -232,9 +236,13 @@ public class ABD extends GenericProtocol {
     /* --------------------------------- Functions ---------------------------- */
 
     private void write(long key, long v) {
+        logger.info("write");
+        checkAndAddIfneeded(key);
         //You should write the operation to the state machine
         val.get(key).addOneOpSeq();
-        pendingOperations.put(key, v);
+        //pendingOperations.put(key, v);
+        val.get(key).addPending(key, v);
+        val.get(key).setupTag();
         // Trigger broadcast
         for (Host h : membership) {
             if (!h.equals(self)) {
@@ -249,8 +257,10 @@ public class ABD extends GenericProtocol {
 
     // Upon bebBcastDeliver ( (READ_Tag, id, k), p)
     private void uponReceiveBroadcastWrite(ProtoMessage msg, Host from, short sourceProto, int channelId){
-
+        logger.info("uponReceiveBroadcastWrite");
         long key = ((ReadTagMsg) msg).getKey();
+
+        checkAndAddIfneeded(key);
 
         long tag1l = val.get(key).getTagLeft();
         long tag1r = val.get(key).getTagRight();
@@ -264,6 +274,7 @@ public class ABD extends GenericProtocol {
     }
 
     private void uponReceive (ProtoMessage msg, Host from, short sourceProto, int channelId) {
+        logger.info("uponReceive");
         long id = (( ReadTagRepMsg ) msg).getOpSeq();
 
         if (val.get(((ReadTagRepMsg ) msg).getKey()).getOpSeq() == id){
@@ -279,26 +290,31 @@ public class ABD extends GenericProtocol {
                     }
                 }
 
-                val.get(((ReadTagRepMsg ) msg)).addOneOpSeq();
+                val.get(((ReadTagRepMsg ) msg).getKey()).addOneOpSeq();
                 answers.clear();
                 long key = ((ReadTagRepMsg ) msg).getKey();
                 // Send write request
                 for (Host h : membership) {
                     if (!h.equals(self)) {
-                        WriteTagMsg msgToSend = new WriteTagMsg(val.get(((ReadTagRepMsg ) msg).getKey()).getOpSeq(), uuidBuffer.get(key), key, newTagl, newTagr, pendingOperations.get(key));
+                        WriteTagMsg msgToSend = new WriteTagMsg(val.get(((ReadTagRepMsg ) msg).getKey()).getOpSeq(), uuidBuffer.get(key), key, newTagl, newTagr, val.get(key).getPending(key));
                         openConnection(h);
                         sendMessage(msgToSend, h);
                     }
                 }
                 pendingOperations.clear();
+                val.get(key).clearPending();
             }
         }
     }
 
     private void uponBebBcastDeliver(ProtoMessage msg, Host from, short sourceProto, int channelId){
+        logger.info("uponBebBcastDeliver");
         long newTagl = ((WriteTagMsg ) msg).getNewTagl();
         long newTagr = ((WriteTagMsg ) msg).getNewTagr();
         long key = ((WriteTagMsg ) msg).getKey();
+
+        checkAndAddIfneeded(key);
+
         if(val.get(key).getTagLeft() < newTagl ||  ( val.get(key).getTagLeft() == newTagl && val.get(key).getTagRight() < newTagr) ){
             val.get(key).setTag(newTagl, newTagr);
             val.get(key).setVal(((WriteTagMsg ) msg).getNewValue());
@@ -313,6 +329,7 @@ public class ABD extends GenericProtocol {
     }
 
     private void uponAck(ProtoMessage msg, Host from, short sourceProto, int channelId){
+        logger.info("uponAck");
         long id = ((AckMsg ) msg).getOpSeq();
         if(val.get(((AckMsg ) msg).getKey()).getOpSeq() == id){
             answers.add(msg);
@@ -321,7 +338,7 @@ public class ABD extends GenericProtocol {
                 // TODO: When testing, check if this is good or bad
                 val.get(((AckMsg ) msg).getKey()).addOneOpSeq();
                 executedOps++;
-                if (pendingOperations.isEmpty()){
+                if (val.get(((AckMsg ) msg).getKey()).isPendingEmpty()){
                     long key = ((AckMsg ) msg).getKey();
                     long value = val.get(key).getVal();
                     triggerNotification(new WriteCompleteNotification(uuidBuffer.get(key), key, value));
@@ -332,6 +349,7 @@ public class ABD extends GenericProtocol {
                     long value = val.get(key).getVal();
                     triggerNotification(new ReadCompleteNotification(uuidBuffer.get(key), key, value));
                     uuidBuffer.remove(key);
+                    val.get(((AckMsg ) msg).getKey()).clearPending();
                 }
 
             }
@@ -341,6 +359,8 @@ public class ABD extends GenericProtocol {
     }
 
     private void read(long key){
+        logger.info("read");
+        checkAndAddIfneeded(key);
         val.get(key).addOneOpSeq();
         answers.clear();
         for (Host h : membership) {
@@ -353,8 +373,10 @@ public class ABD extends GenericProtocol {
     }
 
     private void uponReceiveBroadcastRead(ProtoMessage msg, Host from, short sourceProto, int channelId){
-
+        logger.info("uponReceiveBroadcastRead");
         Long key = ((ReadMsg) msg).getKey();
+
+        checkAndAddIfneeded(key);
 
         long tagl1 = val.get(key).getTagLeft();
         long tagr1 = val.get(key).getTagRight();
@@ -370,6 +392,7 @@ public class ABD extends GenericProtocol {
     }
 
     private void uponReceiveReadReply(ProtoMessage msg, Host from, short sourceProto, int channelId){
+        logger.info("uponReceiveReadReply");
         long id = ((ReadReplyMsg ) msg).getOpSeq();
         if(val.get(((ReadReplyMsg ) msg).getKey()).getOpSeq() == id){
             answers.add(msg);
@@ -406,6 +429,7 @@ public class ABD extends GenericProtocol {
     // Add and remove a replica
 
     private void joinSystem() {
+        logger.info("joinSystem");
         for (Host h : membership) {
             if (!h.equals(self)) {
                 // Send join request
@@ -417,14 +441,16 @@ public class ABD extends GenericProtocol {
     }
 
     private void uponReceiveJoin(ProtoMessage msg, Host from, short sourceProto, int channelId) {
+        logger.info("uponReceiveJoin");
         Host hostJoining = ((JoinMsg) msg).getHostJoining();
         membership.add(hostJoining);
         ProtoMessage msgToSend = new JoinReplyMsg(val);
         openConnection(hostJoining);
-        sendMessage(msg, hostJoining);
+        sendMessage(msgToSend, hostJoining);
     }
 
     private void uponReceiveJoinReply(ProtoMessage msg, Host from, short sourceProto, int channelId) {
+        logger.info("uponReceiveJoinReply");
         if(State.JOINING == state){
             Map<Long, ABDInstance> val = ((JoinReplyMsg) msg).getVal();
             for(int i = 0; i < val.size(); i++){
@@ -437,6 +463,7 @@ public class ABD extends GenericProtocol {
     }
 
     private void leave(){
+        logger.info("leave");
         for (Host h : membership) {
             if (!h.equals(self)) {
                 ProtoMessage msg = new LeaveMsg(self);
@@ -447,11 +474,13 @@ public class ABD extends GenericProtocol {
     }
 
     private void uponReceiveLeave(ProtoMessage msg, Host from, short sourceProto, int channelId) {
+        logger.info("uponReceiveLeave");
         Host hostLeaving = ((LeaveMsg) msg).getLeaving();
         membership.remove(hostLeaving);
     }
 
     private void uponStateReq(CurrentStateRequest request, short sourceProto){
+        logger.info("uponStateReq");
         try{
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
                     DataOutputStream dos = new DataOutputStream(baos);
@@ -477,6 +506,7 @@ public class ABD extends GenericProtocol {
     //}
 
     private void uponStateReply(CurrentStateReply reply, short sourceProto) {
+        logger.info("uponStateReply");
         try {
             val.clear();
             ByteArrayInputStream bais = new ByteArrayInputStream(reply.getState());
@@ -491,6 +521,7 @@ public class ABD extends GenericProtocol {
                 dis.read(value);
                 val.put(Long.parseLong(key), new ABDInstance(i, Long.parseLong(key), convertToLong(value)));
             }
+            state = State.ACTIVE;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -505,5 +536,20 @@ public class ABD extends GenericProtocol {
             value = (value << 8) + (b & 255);
         }
         return value;
+    }
+
+    private void checkAndAddIfneeded(long key){
+        if(val.get(key) == null){
+            val.put(key, new ABDInstance(val.size(), key));
+        }
+    }
+
+    private void doAllWasBefore(){
+        for (ProtoRequest protoRequest : bufferOpsW) {
+            uponWriteRequest((WriteRequest) protoRequest, (short) 300);
+        }
+        for (ProtoRequest protoRequest : bufferOpsR) {
+            uponReadRequest((ReadRequest) protoRequest, (short) 300);
+        }
     }
 }

@@ -10,6 +10,7 @@ public class DecidedNotification extends ProtoNotification {
 
     public static final short NOTIFICATION_ID = 205;
 
+    public static final short APP_OPERATION = 0;
     public static final short MEMBERSHIP_OP = 1;
 
     private final int instance;
@@ -18,15 +19,7 @@ public class DecidedNotification extends ProtoNotification {
     private final int opType;
 
 
-    public DecidedNotification(int instance, UUID opId, byte[] operation) {
-        super(NOTIFICATION_ID);
-        this.instance = instance;
-        this.opId = opId;
-        this.operation = operation;
-        this.opType = 0;
-    }
-
-    public DecidedNotification(int instance, UUID opId, byte[] operation, int opType) {
+    public DecidedNotification(int instance, UUID opId, byte[] operation , int opType) {
         super(NOTIFICATION_ID);
         this.instance = instance;
         this.opId = opId;
@@ -39,7 +32,6 @@ public class DecidedNotification extends ProtoNotification {
         return instance;
     }
 
-    public int getOpType() { return opType; }
 
     public byte[] getOperation() {
         return operation;
@@ -49,6 +41,7 @@ public class DecidedNotification extends ProtoNotification {
         return opId;
     }
 
+    public int getOpType() { return opType; }
     @Override
     public String toString() {
         return "DecidedNotification{" +

@@ -11,11 +11,12 @@ import java.util.Map;
 public class ABDInstance {
 
     private final long instanceId;
-    private long key;
+    private final long key;
     private long val;
     private long tagLeft;
     private long tagRight;
     private long opSeq;
+    private Map<Long, Long> pendingOps;
 
     // true -> Ready for request
     // false -> Not ready for request
@@ -24,13 +25,23 @@ public class ABDInstance {
     public ABDInstance(long id, long key){
         this.instanceId = id;
         this.key = key;
+        this.val = 0;
+        this.state = true;
+        this.tagLeft = 0;
+        this.tagRight = 0;
+        this.opSeq = 0;
+        pendingOps = new HashMap<>();
     }
 
     public ABDInstance(long id, long key, long value){
         this.instanceId = id;
         this.key = key;
         this.val = value;
+        this.tagLeft = 0;
+        this.tagRight = 0;
         state = true;
+        opSeq = 0;
+        pendingOps = new HashMap<>();
     }
 
     public ABDInstance(long id, long key, long value, long tagRight, long tagLeft, long opSeq){
@@ -41,6 +52,7 @@ public class ABDInstance {
         this.tagLeft = tagLeft;
         this.opSeq = opSeq;
         state = true;
+        pendingOps = new HashMap<>();
     }
 
     public long getInstanceId() {
@@ -90,6 +102,27 @@ public class ABDInstance {
 
     public long getTagRight(){
         return tagRight;
+    }
+
+    public void setupTag(){
+        tagLeft = opSeq;
+        tagRight = instanceId;
+    }
+
+    public void addPending(long a, long b){
+        pendingOps.put(a, b);
+    }
+
+    public void clearPending(){
+        pendingOps.clear();
+    }
+
+    public long getPending(long a){
+        return pendingOps.get(a);
+    }
+
+    public boolean isPendingEmpty(){
+        return pendingOps.isEmpty();
     }
 
     public static ISerializer<ABDInstance> serializer = new ISerializer<>() {

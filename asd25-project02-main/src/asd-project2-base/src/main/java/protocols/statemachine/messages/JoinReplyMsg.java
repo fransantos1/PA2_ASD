@@ -17,13 +17,15 @@ public class JoinReplyMsg extends ProtoMessage {
     private final List<Host> currentMembership;
     private final byte[] stateSnapshot;
     private final int instance;
+    private final Host leader;
 
 
-    public JoinReplyMsg(List<Host> currentMembership, byte[] stateSnapshot, int instance) {
+    public JoinReplyMsg(List<Host> currentMembership, byte[] stateSnapshot, int instance, Host leader) {
         super(MSG_ID);
         this.currentMembership = currentMembership;
         this.stateSnapshot = stateSnapshot;
         this.instance = instance;
+        this.leader = leader;
     }
 
     public List<Host> getCurrentMembership() {
@@ -35,6 +37,8 @@ public class JoinReplyMsg extends ProtoMessage {
     }
     public int getInstance() {return instance;}
 
+    public Host getLeader() {return leader;}
+
     public static ISerializer<JoinReplyMsg> serializer = new ISerializer<>() {
         @Override
         public void serialize(JoinReplyMsg sampleMessage, ByteBuf out) throws IOException {
@@ -45,6 +49,7 @@ public class JoinReplyMsg extends ProtoMessage {
             out.writeInt(sampleMessage.stateSnapshot.length);
             out.writeBytes(sampleMessage.stateSnapshot);
             out.writeInt(sampleMessage.instance);
+            Host.serializer.serialize(sampleMessage.leader, out);
         }
 
         @Override
@@ -58,7 +63,8 @@ public class JoinReplyMsg extends ProtoMessage {
             byte[] stateSnapshot = new byte[size];
             in.readBytes(stateSnapshot);
             int instance = in.readInt();
-            return new JoinReplyMsg(membership, stateSnapshot, instance);
+            Host leader = Host.serializer.deserialize(in);
+            return new JoinReplyMsg(membership, stateSnapshot, instance, leader);
         }
     };
 }

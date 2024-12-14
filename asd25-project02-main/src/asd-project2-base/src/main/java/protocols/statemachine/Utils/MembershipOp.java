@@ -9,7 +9,7 @@ import pt.unl.fct.di.novasys.network.data.Host;
 
 public class MembershipOp {
 
-    public final static int ID = 0;
+    public final static int ID = 1;
 
 
     public final static int REMOVE = 0;
@@ -37,23 +37,31 @@ public class MembershipOp {
     public byte[] toByteArray() throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream dos = new DataOutputStream(baos);
+
         dos.writeInt(type);
         InetAddress address = host.getAddress();
         int port = host.getPort();
-        dos.writeByte(address.hashCode());
+
+        dos.writeUTF(address.getHostAddress());
         dos.writeInt(port);
+
+        dos.flush();
         return baos.toByteArray();
     }
 
     public static MembershipOp fromByteArray(byte[] data) throws IOException {
         ByteArrayInputStream bais = new ByteArrayInputStream(data);
         DataInputStream dis = new DataInputStream(bais);
+
         int type = dis.readInt();
-        InetAddress address = InetAddress.getByName(dis.readUTF());
+        String addressString = dis.readUTF();
+        InetAddress address = InetAddress.getByName(addressString);
         int port = dis.readInt();
+
         Host host = new Host(address, port);
 
         return new MembershipOp(type, host);
     }
+
 
 }

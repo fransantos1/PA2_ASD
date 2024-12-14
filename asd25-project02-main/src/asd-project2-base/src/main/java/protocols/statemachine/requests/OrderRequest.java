@@ -9,6 +9,9 @@ public class OrderRequest extends ProtoRequest {
 
     public static final short REQUEST_ID = 407;
 
+    public static final short APP_OPERATION = 0;
+    public static final short MEMBERSHIP_OP = 1;
+
     private final UUID opId;
     private final byte[] operation;
     private final int opType;
