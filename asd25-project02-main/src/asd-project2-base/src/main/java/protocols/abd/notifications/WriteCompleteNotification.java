@@ -29,6 +29,10 @@ public class WriteCompleteNotification extends ProtoNotification {
         return bytes;
     }
 
+    public long getValueLong(){
+        return value;
+    }
+
     public byte[] getValue() {
         byte [] bytes = ByteBuffer.allocate(8).putLong(value).array();
         return bytes;

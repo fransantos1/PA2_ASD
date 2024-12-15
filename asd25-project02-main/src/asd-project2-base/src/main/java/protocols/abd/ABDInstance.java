@@ -2,10 +2,13 @@ package protocols.abd;
 
 import io.netty.buffer.ByteBuf;
 import protocols.abd.messages.JoinReplyMsg;
+import pt.unl.fct.di.novasys.babel.generic.ProtoMessage;
 import pt.unl.fct.di.novasys.network.ISerializer;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class ABDInstance {
@@ -17,6 +20,7 @@ public class ABDInstance {
     private long tagRight;
     private long opSeq;
     private Map<Long, Long> pendingOps;
+    private List<ProtoMessage> answers;
 
     // true -> Ready for request
     // false -> Not ready for request
@@ -31,6 +35,7 @@ public class ABDInstance {
         this.tagRight = 0;
         this.opSeq = 0;
         pendingOps = new HashMap<>();
+        answers = new ArrayList<>();
     }
 
     public ABDInstance(long id, long key, long value){
@@ -42,6 +47,7 @@ public class ABDInstance {
         state = true;
         opSeq = 0;
         pendingOps = new HashMap<>();
+        answers = new ArrayList<>();
     }
 
     public ABDInstance(long id, long key, long value, long tagRight, long tagLeft, long opSeq){
@@ -53,6 +59,7 @@ public class ABDInstance {
         this.opSeq = opSeq;
         state = true;
         pendingOps = new HashMap<>();
+        answers = new ArrayList<>();
     }
 
     public long getInstanceId() {
@@ -123,6 +130,26 @@ public class ABDInstance {
 
     public boolean isPendingEmpty(){
         return pendingOps.isEmpty();
+    }
+
+    public void addAnswers(ProtoMessage msg){
+        answers.add(msg);
+    }
+
+    public int sizeAnswers(){
+        return answers.size();
+    }
+
+    public void clearAnswers(){
+        answers.clear();
+    }
+
+    public List<ProtoMessage> getAnswers(){
+        return answers;
+    }
+
+    public void setValPending(){
+        val = pendingOps.get(key);
     }
 
     public static ISerializer<ABDInstance> serializer = new ISerializer<>() {

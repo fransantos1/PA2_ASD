@@ -4,6 +4,7 @@ import protocols.abd.notifications.ReadCompleteNotification;
 import pt.unl.fct.di.novasys.babel.core.GenericProtocol;
 import pt.unl.fct.di.novasys.babel.exceptions.HandlerRegistrationException;
 import pt.unl.fct.di.novasys.babel.generic.ProtoMessage;
+import pt.unl.fct.di.novasys.babel.generic.ProtoRequest;
 import pt.unl.fct.di.novasys.channel.simpleclientserver.SimpleServerChannel;
 import pt.unl.fct.di.novasys.channel.simpleclientserver.events.ClientDownEvent;
 import pt.unl.fct.di.novasys.channel.simpleclientserver.events.ClientUpEvent;
@@ -172,15 +173,15 @@ public class HashApp extends GenericProtocol {
 	//This handler is executed for the paxos stack 
 	private void uponExecuteNotification(ExecuteNotification not, short sourceProto) {
 		try {
-			//Deserialize operation received
 			Operation op = Operation.fromByteArray(not.getOperation());
 
 			cumulativeHash = appendOpToHash(cumulativeHash, op.getData());
 
-			logger.debug("Executing: " + op);
+
 			//Execute if it is a write operation
 			if (op.getOpType() == RequestMessage.WRITE)
 				data.put(op.getKey(), op.getData());
+
 			executedOps++;
 			if (executedOps % 10000 == 0) {
 				logger.info("Current state N_OPS= {}, MAP_SIZE={}, HASH={}",
@@ -209,6 +210,7 @@ public class HashApp extends GenericProtocol {
 
 	//The following 3 handlers are executed only for the abd stack
 	private void uponReadCompleteNotification(ReadCompleteNotification not, short sourceProto) {
+		//logger.info("Read Complete. Value -> {}", not.getValueLong());
 		String key = new String(not.getKey(),0,not.getKey().length);
 		this.data.put(key, not.getValue());
 		
@@ -220,6 +222,7 @@ public class HashApp extends GenericProtocol {
 	}
 
 	private void uponWriteCompleteNotification(WriteCompleteNotification not, short sourceProto) {
+		//logger.info("Write Complete. Value -> {}", not.getValueLong());
 		String key = new String(not.getKey(),0,not.getKey().length);
 		this.data.put(key, not.getValue());
 		
@@ -231,12 +234,11 @@ public class HashApp extends GenericProtocol {
 	}
 
 	private void uponUpdateValueNotification(UpdateValueNotification not, short sourceProto) {
-		logger.debug("Updating key due to a remote update.");
+		//logger.info("Updating key due to a remote update. Value -> {}", not.getValueLong());
 		data.put(new String(not.getKey(),0,not.getKey().length), not.getValue());
 
 		this.updateOperationCountAndPrintHash();
 	}
-
 
 	private void updateOperationCountAndPrintHash() {
 		executedOps++;

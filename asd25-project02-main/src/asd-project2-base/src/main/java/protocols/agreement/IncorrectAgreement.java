@@ -193,7 +193,7 @@ public class IncorrectAgreement extends GenericProtocol {
         //We joined the system and can now start doing things
         joinedInstance = notification.getJoinInstance();
         membership = new LinkedList<>(notification.getMembership());
-        logger.info("Agreement starting at instance {},  membership: {}", joinedInstance, membership);
+        //logger.info("Agreement starting at instance {},  membership: {}", joinedInstance, membership);
     }
 
     private void uponProposeRequest(ProposeRequest request, short sourceProto) {
@@ -204,7 +204,7 @@ public class IncorrectAgreement extends GenericProtocol {
         if(myself.equals(currentLeader)){
             return;
         }
-        logger.info("Recieved propose for instace: {}",request.getInstance());
+        //logger.info("Recieved propose for instace: {}",request.getInstance());
         broadcastMessage msg = new broadcastMessage(request.getInstance(), request.getOpId(), request.getOperation(), broadcastMessage.ACCEPT, currentBallot, request.getOpType());
         //logger.debug("Sending propose: " + request.toString());
         broadCast(msg);

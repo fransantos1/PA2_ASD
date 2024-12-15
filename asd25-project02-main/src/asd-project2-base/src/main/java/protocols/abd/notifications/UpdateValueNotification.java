@@ -34,6 +34,10 @@ public class UpdateValueNotification extends ProtoNotification {
         return bytes;
     }
 
+    public long getValueLong(){
+        return value;
+    }
+
     @Override
     public String toString() {
         return "UpdateValueNotification{" +

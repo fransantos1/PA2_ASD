@@ -37,19 +37,6 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.*;
 
-/**
- * This is NOT fully functional StateMachine implementation.
- * This is simply an example of things you can do, and can be used as a starting point.
- *
- * You are free to change/delete anything in this class, including its fields.
- * The only thing that you cannot change are the notifications/requests between the StateMachine and the APPLICATION
- * You can change the requests/notification between the StateMachine and AGREEMENT protocol, however make sure it is
- * coherent with the specification shown in the project description.
- *
- * Do not assume that any logic implemented here is correct, think for yourself!
- */
-
-
 
 
 public class StateMachine extends GenericProtocol {
@@ -188,7 +175,7 @@ public class StateMachine extends GenericProtocol {
     }
 
     private void processBufferedRequests() {
-             logger.info("Processing buffered requests now that state is ACTIVE");
+             //logger.info("Processing buffered requests now that state is ACTIVE");
              Enumeration<OrderRequest> requests = bufferedReq.elements();
              while(requests.hasMoreElements()) {
                  OrderRequest req = requests.nextElement();
@@ -208,24 +195,22 @@ public class StateMachine extends GenericProtocol {
 
     /*--------------------------------- Order Requests ---------------------------------------- */
     private void uponRequestForward(forwardRequestMessage request, Host from, short sourceProto, int channelId) {
-        logger.info("Receive request from a replica  {}", from);
+        //logger.info("Receive request from a replica  {}", from);
         sendRequest(request.getReq(), StateMachine.PROTOCOL_ID);
     }
 
     private void uponOrderRequest(OrderRequest request, short sourceProto) {
         if (state == State.JOINING) {
-            logger.info("Received request from {}, putting it on buffered has I'm joining", sourceProto);
+            //logger.info("Received request from {}, putting it on buffered has I'm joining", sourceProto);
             bufferedReq.put(request.getId(), request);
+
         } else if (state == State.ACTIVE) {
             awaitingRequests.put(request.getOpId(), request);
+
             if(!leader.equals(self)){
-                logger.info("Received request from {}, sending it to leader : {}", sourceProto, leader);
-                openConnection(leader);
                 sendMessage( new forwardRequestMessage(request), leader);
                 return;
             }
-
-            logger.info("Received request from {}, adding request {}", sourceProto, request.getOpType());
             requestsWatingTurn.add(request);
             sendNextPropose();
         }
@@ -235,15 +220,12 @@ public class StateMachine extends GenericProtocol {
         if(isRoundActive) {
             return;
         }
-
         OrderRequest req = requestsWatingTurn.poll();
         if(req == null)
             return;
 
         isRoundActive = true;
         int instance = nextInstance +1;
-        logger.info("Sending next propose for instance {}", instance);
-
         sendRequest(new ProposeRequest(instance, req.getOpId(), req.getOperation(), req.getOpType()),
                 IncorrectAgreement.PROTOCOL_ID);
     }
@@ -284,8 +266,9 @@ public class StateMachine extends GenericProtocol {
                     break;
             }
         }
-        logger.info("end of the decision");
         decidedRequests.put(notification.getInstance(), notification);
+        awaitingRequests.remove(notification.getOpId());
+        logger.info("Awaiting requessts Size: {}", awaitingRequests.size());
         if(leader.equals(self)){
             isRoundActive = false;
             sendNextPropose();
