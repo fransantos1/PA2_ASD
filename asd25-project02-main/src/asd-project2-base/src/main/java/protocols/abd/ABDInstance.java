@@ -21,6 +21,7 @@ public class ABDInstance {
     private long opSeq;
     private Map<Long, Long> pendingOps;
     private List<ProtoMessage> answers;
+    private boolean canExec;
 
     // true -> Ready for request
     // false -> Not ready for request
@@ -36,6 +37,7 @@ public class ABDInstance {
         this.opSeq = 0;
         pendingOps = new HashMap<>();
         answers = new ArrayList<>();
+        canExec = true;
     }
 
     public ABDInstance(long id, long key, long value){
@@ -48,6 +50,7 @@ public class ABDInstance {
         opSeq = 0;
         pendingOps = new HashMap<>();
         answers = new ArrayList<>();
+        canExec = true;
     }
 
     public ABDInstance(long id, long key, long value, long tagRight, long tagLeft, long opSeq){
@@ -60,6 +63,15 @@ public class ABDInstance {
         state = true;
         pendingOps = new HashMap<>();
         answers = new ArrayList<>();
+        canExec = true;
+    }
+
+    public boolean isCanExec(){
+        return canExec;
+    }
+
+    public void alterExec(){
+        canExec = !canExec;
     }
 
     public long getInstanceId() {

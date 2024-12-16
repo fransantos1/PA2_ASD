@@ -60,9 +60,13 @@ public class ABD extends GenericProtocol {
     private List<ProtoRequest> bufferOpsR;
     private Map<Long, UUID> uuidBuffer;
 
+    private List<ProtoRequest> pending;
+
     private final short APP_ID = 300;
 
     private int executedOps;
+
+    private boolean canExec;
 
     //private long opSeq;
 
@@ -138,6 +142,8 @@ public class ABD extends GenericProtocol {
         //opSeq = 0;
         executedOps = 0;
         membership = new LinkedList<>();
+        pending = new ArrayList<>();
+        canExec = true;
     }
 
     @Override
@@ -185,8 +191,22 @@ public class ABD extends GenericProtocol {
             //Do something smart (like buffering the requests)
         } else if (state == State.ACTIVE) {
             // Definir para ver se é r
-            uuidBuffer.put(request.getKey(), request.getOpId());
-            read(request.getKey());
+            if(!canExec){
+                pending.add(request);
+                return;
+            }
+
+            if(!uuidBuffer.containsKey(request.getKey())){
+                uuidBuffer.put(request.getKey(), request.getOpId());
+                read(request.getKey());
+
+                canExec = false;
+                //val.get(request.getKey()).alterExec();
+
+            } else {
+                bufferOpsR.add(request);
+            }
+
         }
     }
 
@@ -196,8 +216,22 @@ public class ABD extends GenericProtocol {
             bufferOpsW.add(request);
             //Do something smart (like buffering the requests)
         } else if (state == State.ACTIVE) {
-            uuidBuffer.put(request.getKey(), request.getOpId());
-            write(request.getKey(), request.getValue());
+            if(!canExec){
+                pending.add(request);
+                return;
+            }
+
+            if(!uuidBuffer.containsKey(request.getKey())){
+                uuidBuffer.put(request.getKey(), request.getOpId());
+                write(request.getKey(), request.getValue());
+
+                canExec = false;
+                //val.get(request.getKey()).alterExec();
+
+            } else {
+                bufferOpsW.add(request);
+            }
+
         }
     }
 
@@ -275,7 +309,7 @@ public class ABD extends GenericProtocol {
         sendMessage(msgToSend, from);
     }
 
-    private void uponReceive (ProtoMessage msg, Host from, short sourceProto, int channelId) {
+    private void uponReceive(ProtoMessage msg, Host from, short sourceProto, int channelId) {
         //logger.info("Upon Receive");
         long id = (( ReadTagRepMsg ) msg).getOpSeq();
 
@@ -351,6 +385,7 @@ public class ABD extends GenericProtocol {
                     //logger.info("Done Write, vai mandar pra app");
                     triggerNotification(new WriteCompleteNotification(uuidBuffer.get(key), key, value));
                     uuidBuffer.remove(key);
+                    //writeAfter();
                 }
                 else{
                     long key = ((AckMsg ) msg).getKey();
@@ -359,8 +394,9 @@ public class ABD extends GenericProtocol {
                     triggerNotification(new ReadCompleteNotification(uuidBuffer.get(key), key, value));
                     uuidBuffer.remove(key);
                     val.get(((AckMsg ) msg).getKey()).clearPending();
+                    //readAfter();
                 }
-
+                doNextOp();
             }
         }
 
@@ -560,4 +596,47 @@ public class ABD extends GenericProtocol {
     private long giveSeqNumber(){
         return self.getPort()%3400;
     }
+
+    private void readAfter(){
+        if (bufferOpsR.isEmpty())
+            return;
+        ReadRequest req = (ReadRequest) bufferOpsR.getFirst();
+        if(req == null)
+            return;
+        if(!uuidBuffer.containsKey(req.getKey())){
+            uuidBuffer.put(req.getKey(), req.getOpId());
+            read(req.getKey());
+        }
+        bufferOpsR.remove(req);
+    }
+
+    private void writeAfter(){
+        if (bufferOpsW.isEmpty())
+            return;
+        WriteRequest req = (WriteRequest) bufferOpsW.getFirst();
+        if(req == null)
+            return;
+        if(!uuidBuffer.containsKey(req.getKey())){
+            uuidBuffer.put(req.getKey(), req.getOpId());
+            write(req.getKey(), req.getValue());
+        }
+        bufferOpsW.remove(req);
+    }
+
+    private void doNextOp(){
+        canExec = true;
+
+        //val.get(key).alterExec();
+        if(!pending.isEmpty()){
+            ProtoRequest req = pending.get(0);
+            if(req instanceof ReadRequest){
+                uponReadRequest((ReadRequest) req, (short) 300);
+            } else if (req instanceof WriteRequest){
+
+                uponWriteRequest((WriteRequest) req, (short) 300);
+            }
+            pending.remove(req);
+        }
+    }
+
 }

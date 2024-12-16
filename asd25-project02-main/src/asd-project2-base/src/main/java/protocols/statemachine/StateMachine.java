@@ -44,7 +44,6 @@ public class StateMachine extends GenericProtocol {
 
     private enum State {JOINING, ACTIVE}
 
-    //Protocol information, to register in babel
     public static final String PROTOCOL_NAME = "StateMachine";
     public static final short PROTOCOL_ID = 411;
     
@@ -57,15 +56,11 @@ public class StateMachine extends GenericProtocol {
     private List<Host> membership;
     private int nextInstance;
 
-    // to mantain the membership
-    //max timeout 10s
     private  final int timeOutTime = 10000;//10s
     private final int timeOutTries = 5;
 
     private HashMap<Host, Long> lastCommunication;
     private HashMap<Host, Integer> timeOutHosts;
-
-    private HashMap<Long, Long> stateMap;
 
     private Queue<OrderRequest> requestsWatingTurn;
     private boolean isRoundActive = false;
@@ -81,15 +76,12 @@ public class StateMachine extends GenericProtocol {
         super(PROTOCOL_NAME, PROTOCOL_ID);
         nextInstance = 0;
         bufferedReq = new Hashtable<>();
-        stateMap = new HashMap<>();
-
 
         String address = props.getProperty("address");
         String port = props.getProperty("p2p_port");
 
         logger.info("Listening on {}:{}", address, port);
         this.self = new Host(InetAddress.getByName(address), Integer.parseInt(port));
-
 
         Properties channelProps = new Properties();
         channelProps.setProperty(TCPChannel.ADDRESS_KEY, address);
@@ -133,7 +125,6 @@ public class StateMachine extends GenericProtocol {
         registerTimerHandler(BufferedRequestTimer.TIMER_ID, this::processNextBufferedRequest);
 
     }
-
     @Override
     public void init(Properties props) {
         //Inform the state machine protocol about the channel we created in the constructor
@@ -145,6 +136,7 @@ public class StateMachine extends GenericProtocol {
         awaitingRequests = new HashMap<>();
         requestsWatingTurn = new LinkedList<>();
         decidedRequests = new HashMap<>();
+
         for (String s : hosts) {
             String[] hostElements = s.split(":");
             Host h;
@@ -234,7 +226,6 @@ public class StateMachine extends GenericProtocol {
 
         if(notification.getInstance() > nextInstance+1){
             logger.debug("Im behind, asking for a state transfer");
-            // ask for state transfer or smth
             return;
         }
 
@@ -266,9 +257,8 @@ public class StateMachine extends GenericProtocol {
                     break;
             }
         }
-        decidedRequests.put(notification.getInstance(), notification);
+        //decidedRequests.put(notification.getInstance(), notification);
         awaitingRequests.remove(notification.getOpId());
-        logger.info("Awaiting requessts Size: {}", awaitingRequests.size());
         if(leader.equals(self)){
             isRoundActive = false;
             sendNextPropose();

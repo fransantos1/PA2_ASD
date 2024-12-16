@@ -37,6 +37,7 @@ public class IncorrectAgreement extends GenericProtocol {
     //Protocol information, to register in babel
     public final static short PROTOCOL_ID = 210;
     public final static String PROTOCOL_NAME = "MultiPaxos";
+    private final static int decidedProposalsSize = 1500;
 
 
     private Host currentLeader;
@@ -135,6 +136,7 @@ public class IncorrectAgreement extends GenericProtocol {
                     break;
 
                 case broadcastMessage.ACCEPT_OK:
+                    //logger.info("decidedProposals Size: {}", decidedProposals.size());
                     if(decidedProposals.contains(msg.getOpId()))
                         return;
                     int nOfAcceptOk = incomingProposals.getOrDefault(msg.getOpId(), 0);
@@ -144,7 +146,12 @@ public class IncorrectAgreement extends GenericProtocol {
                         return;
                     }
                     incomingProposals.remove(msg.getOpId());
+
+                    if(decidedProposals.size() > decidedProposalsSize*2) {
+                        decidedProposals.subList(0, decidedProposalsSize).clear();
+                    }
                     decidedProposals.add(msg.getOpId());
+
                     triggerNotification(new DecidedNotification(msg.getInstance(), msg.getOpId(), msg.getOp(), msg.getOpType()));
                     break;
 

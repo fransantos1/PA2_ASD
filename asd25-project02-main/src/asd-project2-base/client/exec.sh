@@ -8,7 +8,7 @@ shift 5
 
 java -Dlog4j.configurationFile=log4j2.xml \
   -DlogFilename=clientLog.log \
-	-cp asd-client.jar site.ycsb.Client -t -s -P config.properties \
+	-cpasd -client.jar site.ycsb.Client -t -s -P config.properties \
 	-threads $nthreads -p fieldlength=$payload \
 	-p hosts=$servers \
 	-p readproportion=${readsper} -p updateproportion=${writesper} \
